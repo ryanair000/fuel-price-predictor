@@ -1,0 +1,27 @@
+Test ID,Testing Type,Test Area,Test Input/Condition,Expected Result,Actual Result,Status
+TC01,Smoke Testing,Application startup,Run `streamlit run app.py`.,The application should start without errors.,Application started successfully at http://localhost:8501.,Pass
+TC02,Unit Testing,Dataset availability,Check for `fuel_prices.csv` in the project root.,The verified CSV file should exist.,The dataset file was found in the project root.,Pass
+TC03,Unit Testing,Dataset schema,Load the CSV and inspect column names.,Columns should match the required project schema.,"Columns matched: Date, USD_KES, Crude_Oil, Super_Petrol, Diesel, Kerosene.",Pass
+TC04,Functional Testing,Date conversion,Convert `Date` from text to datetime.,All dates should convert successfully.,All 52 records converted successfully to datetime values.,Pass
+TC05,Functional Testing,Chronological sorting,Sort the dataset by `Date`.,Records should be in ascending month order.,Dataset sorted from Jan-2022 to Apr-2026.,Pass
+TC06,Functional Testing,Month numbering,Create `Month_num` after sorting the dataset.,Month numbers should run sequentially.,Month_num was created from 1 to 52.,Pass
+TC07,Unit Testing,Lag feature creation,Create lagged data for Super Petrol.,Lagged data should contain `Lag_1` and `Lag_2` and drop the first two rows.,Lagged Super Petrol dataset was created with 50 rows; first row is Mar-2022.,Pass
+TC08,Unit Testing,Lag feature creation,Create lagged data for Diesel.,Diesel lagged data should contain `Lag_1` and `Lag_2`.,Lagged Diesel dataset was created successfully.,Pass
+TC09,Unit Testing,Lag feature creation,Create lagged data for Kerosene.,Kerosene lagged data should contain `Lag_1` and `Lag_2`.,Lagged Kerosene dataset was created successfully.,Pass
+TC10,Model Testing,Super Petrol model,Train the linear regression model for Super Petrol.,The model should train and return evaluation metrics.,"Model trained successfully. MAE=4.73, MSE=55.46, R?=-1.16.",Pass
+TC11,Model Testing,Diesel model,Train the linear regression model for Diesel.,The model should train and return evaluation metrics.,"Model trained successfully. MAE=5.88, MSE=115.34, R?=-0.74.",Pass
+TC12,Model Testing,Kerosene model,Train the linear regression model for Kerosene.,The model should train and return evaluation metrics.,"Model trained successfully. MAE=2.16, MSE=9.75, R?=-5.52.",Pass
+TC13,GUI Testing,Fuel selector,Change the selected fuel type from Super Petrol to Diesel and Kerosene.,The page headings and prediction output should update to the selected fuel type.,The interface updated to show Diesel and Kerosene prediction headings correctly.,Pass
+TC14,Input Validation Testing,USD/KES input field,Inspect the USD/KES widget in the app.,The widget should accept numeric values only.,The field rendered as a numeric spinbutton and accepted 129.24.,Pass
+TC15,Input Validation Testing,Crude oil input field,Inspect the crude oil widget in the app.,The widget should accept numeric values only.,The field rendered as a numeric spinbutton and accepted 117.00.,Pass
+TC16,Functional Testing,Super Petrol prediction output,Use default values with Super Petrol selected.,The app should show next-month prediction in Kenya shillings.,The app displayed KSh 191.46 per litre for May 2026.,Pass
+TC17,Functional Testing,Diesel prediction output,Use default values with Diesel selected.,The app should show next-month prediction in Kenya shillings.,The app displayed KSh 184.96 per litre for May 2026.,Pass
+TC18,Functional Testing,Kerosene prediction output,Use default values with Kerosene selected.,The app should show next-month prediction in Kenya shillings.,The app displayed KSh 154.00 per litre for May 2026.,Pass
+TC19,GUI Testing,Model evaluation section,View the metric cards after prediction.,"The app should display MAE, MSE, and R? Score.",All three metrics were displayed in the interface.,Pass
+TC20,GUI Testing,Fuel price trend chart,Scroll to the trend chart area.,A line chart should display the selected fuel trend and predicted point.,The chart rendered successfully for the selected fuel.,Pass
+TC21,Integration Testing,Historical dataset display,Open the historical dataset expander.,The verified dataset should be displayed in a table.,The expander opened and displayed historical fuel records.,Pass
+TC22,Integration Testing,Lagged dataset display,Open the lagged dataset expander.,The lagged dataset should be displayed with Lag_1 and Lag_2.,The expander opened and displayed lagged values for Super Petrol.,Pass
+TC23,Performance Testing,Response time,Request the running local app URL once after startup.,The application should respond quickly in the browser.,The local response time measured about 250 ms.,Pass
+TC24,Compatibility Testing,Browser rendering,Open the app in Chromium through Playwright.,The interface should render correctly in a desktop browser.,The app rendered correctly in Chromium during screenshot capture.,Pass
+TC25,Regression Testing,Model feature check,Inspect `app.py` feature columns.,"Only Month_num, USD_KES, Crude_Oil, Lag_1, and Lag_2 should be used.",The implemented feature list matched the required lag-variable model.,Pass
+TC26,Acceptance Testing,Minimum project requirements,Check the running app against the stated project features.,"The app should load data, predict next-month fuel price, show metrics, show chart, and show both dataset sections.",All required project features were confirmed in the live application.,Pass

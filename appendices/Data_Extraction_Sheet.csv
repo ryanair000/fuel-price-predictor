@@ -1,0 +1,7 @@
+Field,Source,Frequency,Unit,Notes
+Date,Project verified CSV dataset,Monthly,Month-Year,Used for chronological ordering and month numbering.
+USD_KES,Central Bank of Kenya exchange rate publications,Monthly,KES per USD,Represents the exchange rate factor in the model.
+Crude_Oil,World Bank commodity price data,Monthly,USD per barrel,Represents global crude oil price movement.
+Super_Petrol,EPRA maximum retail pump prices,Monthly,KSh per litre,Target variable for super petrol forecasting.
+Diesel,EPRA maximum retail pump prices,Monthly,KSh per litre,Target variable for diesel forecasting.
+Kerosene,EPRA maximum retail pump prices,Monthly,KSh per litre,Target variable for kerosene forecasting.

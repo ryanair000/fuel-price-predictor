@@ -24,6 +24,13 @@ FUEL_OPTIONS = {
 }
 
 
+st.set_page_config(
+    page_title="Kenya Fuel Price Predictor",
+    page_icon="F",
+    layout="wide",
+)
+
+
 def validate_dataset(dataframe: pd.DataFrame) -> None:
     missing_columns = [column for column in REQUIRED_COLUMNS if column not in dataframe.columns]
     if missing_columns:
@@ -108,12 +115,6 @@ def build_trend_chart(data: pd.DataFrame, fuel_column: str, next_month: pd.Times
 
 
 def main() -> None:
-    st.set_page_config(
-        page_title="Kenya Fuel Price Predictor",
-        page_icon="F",
-        layout="wide",
-    )
-
     st.title("Kenya Fuel Price Predictor")
     st.write(
         "This system predicts next-month fuel prices in Kenya using a linear regression "
