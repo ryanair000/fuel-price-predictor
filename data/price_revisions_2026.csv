@@ -1,0 +1,5 @@
+Cycle,Revision,Effective_From,Effective_To,Super_Petrol,Diesel,Kerosene,Source_ID,Disposition
+2026-04-01,Original,2026-04-15,2026-04-15,206.97,206.84,152.78,EPRA_PUMP_DB,Superseded after one day
+2026-04-01,Final,2026-04-16,2026-05-14,197.60,196.63,152.78,EPRA_APR16_2026,Used in monthly modeling history
+2026-05-01,Original,2026-05-15,2026-05-18,214.25,242.92,152.78,EPRA_MAY19_2026,Superseded after four days
+2026-05-01,Final,2026-05-19,2026-06-14,214.25,232.86,191.38,EPRA_MAY19_2026,Used in monthly modeling history

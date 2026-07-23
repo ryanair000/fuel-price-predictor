@@ -1,0 +1,54 @@
+Effective_From,Effective_To,Fuel,Component,Category,KES_Per_Litre,Source_ID
+2025-06-15,2025-07-14,Super Petrol,Landed cost,Product,76.83,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Pipeline transport,Distribution,2.79,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Road bridging,Distribution,0.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Pipeline losses,Distribution,0.05,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Depot losses,Distribution,0.67,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Delivery within Nairobi,Distribution,0.86,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Importers margin,Margins,5.52,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Dealers margin,Margins,9.72,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Excise duty,Taxes and levies,21.95,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Road Maintenance Levy,Taxes and levies,25.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Petroleum Development Levy,Taxes and levies,5.40,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Petroleum Regulatory Levy,Taxes and levies,0.75,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Railway Development Levy,Taxes and levies,1.46,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Anti-adulteration Levy,Taxes and levies,0.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Merchant Shipping Levy,Taxes and levies,0.03,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Import Declaration Fee,Taxes and levies,1.82,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Value Added Tax,Taxes and levies,24.46,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Super Petrol,Rounding reconciliation,Rounding,0.01,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Landed cost,Product,75.43,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Pipeline transport,Distribution,2.79,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Road bridging,Distribution,0.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Pipeline losses,Distribution,0.05,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Depot losses,Distribution,0.36,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Delivery within Nairobi,Distribution,0.86,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Importers margin,Margins,5.44,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Dealers margin,Margins,9.72,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Excise duty,Taxes and levies,11.37,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Road Maintenance Levy,Taxes and levies,25.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Petroleum Development Levy,Taxes and levies,5.40,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Petroleum Regulatory Levy,Taxes and levies,0.75,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Railway Development Levy,Taxes and levies,1.44,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Anti-adulteration Levy,Taxes and levies,0.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Merchant Shipping Levy,Taxes and levies,0.03,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Import Declaration Fee,Taxes and levies,1.80,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Diesel,Value Added Tax,Taxes and levies,22.47,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Landed cost,Product,73.80,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Pipeline transport,Distribution,2.79,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Road bridging,Distribution,0.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Pipeline losses,Distribution,0.04,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Depot losses,Distribution,0.32,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Delivery within Nairobi,Distribution,0.86,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Importers margin,Margins,5.37,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Dealers margin,Margins,9.72,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Excise duty,Taxes and levies,11.37,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Road Maintenance Levy,Taxes and levies,0.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Petroleum Development Levy,Taxes and levies,0.40,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Petroleum Regulatory Levy,Taxes and levies,0.75,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Railway Development Levy,Taxes and levies,1.42,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Anti-adulteration Levy,Taxes and levies,18.00,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Merchant Shipping Levy,Taxes and levies,0.03,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Import Declaration Fee,Taxes and levies,1.78,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Value Added Tax,Taxes and levies,20.27,EPRA_JUNE2025_COSTS
+2025-06-15,2025-07-14,Kerosene,Rounding reconciliation,Rounding,0.01,EPRA_JUNE2025_COSTS

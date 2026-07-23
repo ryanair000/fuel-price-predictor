@@ -1,9 +1,12 @@
-.venv/
+.venv*/
 __pycache__/
 *.py[cod]
 .Python
 .streamlit/
 .playwright-cli/
+tmp/
+output/playwright/
+docs/~$*.docx
 docs/report_render/
 streamlit.log
 streamlit.err

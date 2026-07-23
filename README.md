@@ -1,110 +1,93 @@
-# Fuel Price Prediction System Using Machine Learning
+# MafutaPlan: Hybrid Nairobi Fuel-Price Decision-Support System
 
-This repository contains the final year IT research project for Ryan Alfred Nyambati. The system predicts next-month fuel prices in Kenya using a simple Linear Regression model built with historical fuel prices, USD/KES exchange rate values, crude oil prices, and lagged fuel price variables.
+MafutaPlan is a Bachelor of Science in Information Technology final project focused on one defensible market: Nairobi, Kenya. It explains the complete regulated journey from imported refined petroleum product to the Nairobi pump, reconstructs official EPRA price build-ups, evaluates next-cycle forecasting methods, and supports transparent cost scenarios and personal fuel planning.
 
-## Project Title
+The recommended academic title is:
 
-Fuel Price Prediction System Using Machine Learning
+> Design and Implementation of a Hybrid Cost-Based Model for Forecasting Regulated Fuel Prices in Nairobi, Kenya
 
-## Student Details
+The complete research and implementation blueprint is in [HYBRID_PROJECT_IMPLEMENTATION_PLAN.md](HYBRID_PROJECT_IMPLEMENTATION_PLAN.md).
 
-- Name: Ryan Alfred Nyambati
-- Registration Number: SCT222-0195/2021
-- Institution: Jomo Kenyatta University of Agriculture and Technology
-- Department: Information Technology
+## Purpose and users
 
-## Model Inputs
+The project answers: **How can a source-backed information system explain, reconstruct and cautiously forecast Nairobi's regulated fuel prices without treating the international product cost as the final pump price?**
 
-The current model uses these five input features:
+Primary clients are Nairobi motorists and household fuel users. Secondary users are transport/logistics planners, small businesses, researchers, students and policy analysts. EPRA is the authoritative data source and regulator, not the software client.
 
-- `Month_num`
-- `USD_KES`
-- `Crude_Oil`
-- `Lag_1`
-- `Lag_2`
+## Implemented workflows
 
-The model inputs are limited to exchange rate, crude oil price, month number, and lagged fuel prices.
+- **Overview:** active official Nairobi price caps and the complete historical trend.
+- **Fuel price journey:** refined-product procurement, ocean and landing charges, Mombasa handling, KPC pipeline transport to Nairobi, depot/delivery costs, margins, taxes and stabilization.
+- **Cost reconstruction:** select a real EPRA cycle and exactly reproduce its official Nairobi retail price from five aggregate cost groups.
+- **Forecast and scenarios:** compare a time-tested statistical forecast with a clearly separate EPRA-component what-if calculator.
+- **Planning calculator:** calculate purchase cost, litres affordable and trip cost using the current official cap.
+- **Evidence and methodology:** inspect records, source URLs, features, validation metrics and limitations.
 
-## Target Variables
+## Real data
 
-- `Super_Petrol`
-- `Diesel`
-- `Kerosene`
+| Dataset | Grain and coverage | Purpose |
+|---|---|---|
+| `data/nairobi_price_history.csv` | 55 monthly Nairobi cycles, Jan 2022-Jul 2026 | Price trend, lags and next-cycle model |
+| `data/current_nairobi_price.csv` | One active Nairobi regulatory cycle | Official app headline and calculators |
+| `data/price_components.csv` | 53 detailed items for three fuels, Jun-Jul 2025 | Item-by-item supply-chain explanation |
+| `data/nairobi_component_history.csv` | 33 reviewed records, 11 EPRA cycles × three fuels | Multi-cycle reconstruction and scenarios |
+| `data/epra_component_source_inventory.csv` | 23 official EPRA release pages and PDFs | Source acquisition register |
+| `data/epra_annex_ocr_audit.csv` | OCR fingerprint and extraction status per PDF | Reproducibility and manual-review trail |
+| `data/price_revisions_2026.csv` | Published 2026 revision trail | Regulatory audit context |
+| `data/sources.csv` | First-party and supporting source register | Provenance |
 
-## Dataset Columns
+The component panel contains landed cost, Mombasa-to-Nairobi distribution/storage, wholesale and retail margins, taxes/levies, stabilization and the final price. Every reviewed row has an official EPRA PDF URL and zero reconstruction error after rounding.
 
-The system expects `fuel_prices.csv` to contain:
+## What is regression—and what is not
 
-```text
-Date, USD_KES, Crude_Oil, Super_Petrol, Diesel, Kerosene
-```
+The **price forecast** compares previous-cycle persistence, linear regression, ridge regression, random forest and gradient boosting. It uses expanding-window model selection and a final untouched ten-cycle holdout. The selected method may be the simple baseline when regression does not improve out-of-sample accuracy.
 
-## What the System Does
-
-- Loads the verified CSV dataset
-- Converts `Date` to datetime format
-- Sorts records chronologically
-- Creates `Month_num`
-- Creates `Lag_1` and `Lag_2` for the selected fuel type
-- Trains a Linear Regression model
-- Accepts expected `USD_KES` and `Crude_Oil` inputs
-- Predicts the next-month fuel price
-- Displays prediction results in Kenya shillings
-- Displays `MAE`, `MSE`, and `R² Score`
-- Displays a fuel price trend chart
-- Displays the historical dataset and lagged dataset in expandable sections
-
-## Tools Used
-
-- Streamlit
-- Pandas
-- Scikit-learn
-- Matplotlib
-
-## Project Structure
+The **price reconstruction** is not regression. It is the regulated identity:
 
 ```text
-fuel-price-predictor/
-├── app.py
-├── fuel_prices.csv
-├── requirements.txt
-├── README.md
-├── notebooks/
-│   └── FuelPriceAnalysis.ipynb
-├── outputs/
-│   ├── charts/
-│   ├── diagrams/
-│   ├── screenshots/
-│   └── excel_analysis.xlsx
-├── docs/
-│   └── Ryan_Final_Project_Report.docx
-├── appendices/
-└── tests/
-    └── test_project.py
+Nairobi pump price
+= landed product cost
++ distribution and storage from Mombasa to Nairobi
++ wholesale and retail margins
++ taxes and levies
++ signed stabilization adjustment
 ```
 
-## Installation
+The **cost scenario** changes only values the user declares. It is not presented as an EPRA forecast. Same-cycle future costs are never inserted into historical predictions, which prevents target leakage.
 
-```bash
-pip install -r requirements.txt
+## Reproduce the official-source pipeline
+
+```powershell
+python scripts\inventory_epra_component_sources.py
+python scripts\extract_epra_annex_ocr.py
+python scripts\build_component_history.py
 ```
 
-## Run the App
+The OCR script needs Tesseract OCR. Raw PDFs, rendered images and OCR text remain under ignored `tmp/`; their hashes and official links are written to the versioned audit file. Some EPRA scans are degraded and remain explicitly marked for manual review rather than silently parsed.
 
-```bash
+## Run locally
+
+```powershell
+python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Run the Tests
+Open `http://localhost:8501`.
 
-```bash
+## Verify
+
+```powershell
 python -m unittest discover -s tests -v
+python -m compileall app.py src scripts tests
+python -m pip check
 ```
 
-## Notebook and Outputs
+## Important limitations
 
-The notebook in `notebooks/FuelPriceAnalysis.ipynb` is used for data checking, descriptive statistics, and chart generation for the final report. Generated charts, screenshots, diagrams, and the Excel analysis file are stored in the `outputs/` folder.
+- The pump-price series is only 55 monthly observations; the component panel has 11 reviewed cycles because several official annex scans are technically degraded.
+- The current next-cycle model remains price-lag based. The component panel supports explanation, reconstruction and scenarios, but is not yet long or continuous enough for a strong production landed-cost regression.
+- Taxes, stabilization, emergency policy changes, procurement timing and exchange-rate movements can create structural breaks.
+- Published prices are maximum regulatory caps, not a promise that every station sells at exactly that price.
+- This is an academic decision-support prototype, not an EPRA announcement or financial advice.
 
-## Repository Link
-
-[GitHub Repository](https://github.com/ryanair000/fuel-price-predictor)
+Author: Ryan Alfred Nyambati — SCT222-0195/2021, Jomo Kenyatta University of Agriculture and Technology.

@@ -1,736 +1,728 @@
+"""Build the submission-ready academic report from the verified project artifacts."""
+
+from __future__ import annotations
+
+import csv
+import math
+import sys
+from datetime import date
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import pandas as pd
 from docx import Document
-from docx.enum.section import WD_ORIENT, WD_SECTION
-from docx.enum.style import WD_STYLE_TYPE
-from docx.enum.table import WD_ALIGN_VERTICAL
+from docx.enum.section import WD_SECTION
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Inches, Pt
-
+from docx.shared import Inches, Pt, RGBColor
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS_DIR = ROOT / "docs"
-OUTPUTS_DIR = ROOT / "outputs"
-CHARTS_DIR = OUTPUTS_DIR / "charts"
-DIAGRAMS_DIR = OUTPUTS_DIR / "diagrams"
-SCREENSHOTS_DIR = OUTPUTS_DIR / "screenshots"
-APPENDICES_DIR = ROOT / "appendices"
-REPORT_PATH = DOCS_DIR / "Ryan_Final_Project_Report.docx"
+DATA = ROOT / "data"
+OUT = ROOT / "outputs"
+CHARTS = OUT / "charts"
+DIAGRAMS = OUT / "diagrams"
+DOCS = ROOT / "docs"
+REPORT = DOCS / "Ryan_Final_Project_Report.docx"
+
+BLUE = "174A7E"
+MID_BLUE = "2E74B5"
+LIGHT_BLUE = "DDEBF7"
+PALE = "F2F4F7"
+INK = "202A35"
+MUTED = "5B6573"
+WHITE = "FFFFFF"
 
 
-def set_cell_shading(cell, fill="D9E2F3"):
+def load_csv(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def set_cell_shading(cell, fill: str) -> None:
     tc_pr = cell._tc.get_or_add_tcPr()
-    shd = OxmlElement("w:shd")
+    shd = tc_pr.find(qn("w:shd"))
+    if shd is None:
+        shd = OxmlElement("w:shd")
+        tc_pr.append(shd)
     shd.set(qn("w:fill"), fill)
-    tc_pr.append(shd)
 
 
-def set_landscape(section):
-    section.orientation = WD_ORIENT.LANDSCAPE
-    section.page_width = Cm(29.7)
-    section.page_height = Cm(21.0)
-    section.top_margin = Cm(2.54)
-    section.bottom_margin = Cm(2.54)
-    section.left_margin = Cm(2.54)
-    section.right_margin = Cm(2.54)
+def set_repeat_table_header(row) -> None:
+    tr_pr = row._tr.get_or_add_trPr()
+    element = OxmlElement("w:tblHeader")
+    element.set(qn("w:val"), "true")
+    tr_pr.append(element)
 
 
-def set_portrait(section):
-    section.orientation = WD_ORIENT.PORTRAIT
-    section.page_width = Cm(21.0)
-    section.page_height = Cm(29.7)
-    section.top_margin = Cm(2.54)
-    section.bottom_margin = Cm(2.54)
-    section.left_margin = Cm(2.54)
-    section.right_margin = Cm(2.54)
-
-
-def apply_run_format(run, size=14, bold=False, italic=False, font_name="Times New Roman"):
-    run.font.name = font_name
-    run._element.rPr.rFonts.set(qn("w:ascii"), font_name)
-    run._element.rPr.rFonts.set(qn("w:hAnsi"), font_name)
-    run.font.size = Pt(size)
-    run.bold = bold
-    run.italic = italic
-
-
-def apply_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.JUSTIFY, space_after=6, space_before=0, line_spacing=1.5):
-    paragraph.alignment = alignment
-    paragraph.paragraph_format.space_after = Pt(space_after)
-    paragraph.paragraph_format.space_before = Pt(space_before)
-    paragraph.paragraph_format.line_spacing = line_spacing
-
-
-def style_document(doc):
-    normal_style = doc.styles["Normal"]
-    normal_style.font.name = "Times New Roman"
-    normal_style._element.rPr.rFonts.set(qn("w:ascii"), "Times New Roman")
-    normal_style._element.rPr.rFonts.set(qn("w:hAnsi"), "Times New Roman")
-    normal_style.font.size = Pt(14)
-
-    for style_name in ["Title", "Heading 1", "Heading 2", "Heading 3"]:
-        style = doc.styles[style_name]
-        style.font.name = "Times New Roman"
-        style._element.rPr.rFonts.set(qn("w:ascii"), "Times New Roman")
-        style._element.rPr.rFonts.set(qn("w:hAnsi"), "Times New Roman")
-
-    doc.styles["Title"].font.size = Pt(16)
-    doc.styles["Title"].font.bold = True
-    doc.styles["Heading 1"].font.size = Pt(16)
-    doc.styles["Heading 1"].font.bold = True
-    doc.styles["Heading 2"].font.size = Pt(14)
-    doc.styles["Heading 2"].font.bold = True
-    doc.styles["Heading 3"].font.size = Pt(14)
-    doc.styles["Heading 3"].font.bold = True
-
-    if "CodeBlock" not in doc.styles:
-        style = doc.styles.add_style("CodeBlock", WD_STYLE_TYPE.PARAGRAPH)
-        style.font.name = "Consolas"
-        style._element.rPr.rFonts.set(qn("w:ascii"), "Consolas")
-        style._element.rPr.rFonts.set(qn("w:hAnsi"), "Consolas")
-        style.font.size = Pt(11)
-
-
-def add_paragraph(doc, text, alignment=WD_ALIGN_PARAGRAPH.JUSTIFY, bold=False, italic=False, size=14, style_name=None, space_after=6):
-    paragraph = doc.add_paragraph(style=style_name)
-    run = paragraph.add_run(text)
-    apply_run_format(run, size=size, bold=bold, italic=italic, font_name="Times New Roman" if style_name != "CodeBlock" else "Consolas")
-    apply_paragraph_format(paragraph, alignment=alignment, space_after=space_after)
-    return paragraph
-
-
-def add_heading(doc, text, level=1, center=False):
-    paragraph = doc.add_paragraph(style=f"Heading {level}")
-    run = paragraph.add_run(text)
-    apply_run_format(run, size=16 if level == 1 else 14, bold=True)
-    apply_paragraph_format(
-        paragraph,
-        alignment=WD_ALIGN_PARAGRAPH.CENTER if center or level == 1 else WD_ALIGN_PARAGRAPH.LEFT,
-        space_after=8,
-    )
-    return paragraph
-
-
-def add_caption(doc, text):
-    paragraph = doc.add_paragraph()
-    run = paragraph.add_run(text)
-    apply_run_format(run, size=12, bold=False, italic=False)
-    apply_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.CENTER, space_after=6)
-    paragraph.paragraph_format.keep_together = True
-    return paragraph
-
-
-def add_code_block(doc, code_text):
-    table = doc.add_table(rows=1, cols=1)
-    table.style = "Table Grid"
-    cell = table.cell(0, 0)
-    set_cell_shading(cell, "F2F2F2")
+def set_cell_text(cell, value: object, bold: bool = False, color: str = INK) -> None:
+    cell.text = ""
     paragraph = cell.paragraphs[0]
-    for line in code_text.strip().splitlines():
-        run = paragraph.add_run(line)
-        apply_run_format(run, size=10, font_name="Consolas")
-        run.add_break()
     paragraph.paragraph_format.space_after = Pt(0)
-    paragraph.paragraph_format.line_spacing = 1.15
-    return table
+    run = paragraph.add_run(str(value))
+    run.bold = bold
+    run.font.name = "Calibri"
+    run.font.size = Pt(8.5)
+    run.font.color.rgb = RGBColor.from_string(color)
+    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
 
-def add_dataframe_table(doc, dataframe, caption, font_size=11, column_widths=None):
+def add_table(doc: Document, headers: list[str], rows: list[list[object]], widths=None, caption=None):
     if caption:
-        add_caption(doc, caption)
-    rows, cols = dataframe.shape
-    table = doc.add_table(rows=rows + 1, cols=cols)
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(caption)
+        run.bold = True
+        run.font.size = Pt(9)
+    table = doc.add_table(rows=1, cols=len(headers))
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.style = "Table Grid"
-    table.autofit = True
-
-    for col_index, column_name in enumerate(dataframe.columns):
-        cell = table.cell(0, col_index)
-        cell.text = str(column_name)
-        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-        set_cell_shading(cell, "D9E2F3")
-        para = cell.paragraphs[0]
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        for run in para.runs:
-            apply_run_format(run, size=font_size, bold=True)
-
-    for row_index in range(rows):
-        for col_index in range(cols):
-            value = dataframe.iloc[row_index, col_index]
-            cell = table.cell(row_index + 1, col_index)
-            cell.text = str(value)
-            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-            para = cell.paragraphs[0]
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER if isinstance(value, (int, float)) else WD_ALIGN_PARAGRAPH.LEFT
-            for run in para.runs:
-                apply_run_format(run, size=font_size)
-
-    if column_widths:
+    header = table.rows[0]
+    set_repeat_table_header(header)
+    for i, title in enumerate(headers):
+        set_cell_text(header.cells[i], title, bold=True, color=WHITE)
+        set_cell_shading(header.cells[i], BLUE)
+    for row_no, values in enumerate(rows):
+        row = table.add_row()
+        for i, value in enumerate(values):
+            set_cell_text(row.cells[i], value)
+            if row_no % 2:
+                set_cell_shading(row.cells[i], PALE)
+    if widths:
         for row in table.rows:
-            for cell, width_cm in zip(row.cells, column_widths):
-                cell.width = Cm(width_cm)
-
-    doc.add_paragraph("")
+            for idx, width in enumerate(widths):
+                row.cells[idx].width = Inches(width)
+    doc.add_paragraph().paragraph_format.space_after = Pt(0)
     return table
 
 
-def add_chunked_dataframe_tables(doc, dataframe, caption_base, rows_per_table, font_size=8, column_widths=None):
-    for part_index, start in enumerate(range(0, len(dataframe), rows_per_table), start=1):
-        chunk = dataframe.iloc[start : start + rows_per_table].reset_index(drop=True)
-        caption = f"{caption_base} (Part {part_index})"
-        add_dataframe_table(doc, chunk, caption, font_size=font_size, column_widths=column_widths)
-        if start + rows_per_table < len(dataframe):
-            doc.add_page_break()
+def add_caption(doc: Document, text: str) -> None:
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(3)
+    p.paragraph_format.space_after = Pt(8)
+    r = p.add_run(text)
+    r.bold = True
+    r.font.size = Pt(9)
+    r.font.color.rgb = RGBColor.from_string(MUTED)
 
 
-def add_figure(doc, image_path, caption, width_inches=6.3):
-    paragraph = doc.add_paragraph()
+def add_figure(doc: Document, path: Path, caption: str, width=6.35) -> None:
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run().add_picture(str(path), width=Inches(width))
+    add_caption(doc, caption)
+
+
+def add_bullets(doc: Document, items: list[str], numbered=False) -> None:
+    style = "List Number" if numbered else "List Bullet"
+    for item in items:
+        p = doc.add_paragraph(style=style)
+        p.paragraph_format.left_indent = Inches(0.25)
+        p.paragraph_format.first_line_indent = Inches(-0.18)
+        p.add_run(item)
+
+
+def add_heading(doc: Document, text: str, level=1) -> None:
+    doc.add_heading(text, level=level)
+
+
+def add_para(doc: Document, text: str, bold_lead: str | None = None) -> None:
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    if bold_lead and text.startswith(bold_lead):
+        p.add_run(bold_lead).bold = True
+        p.add_run(text[len(bold_lead):])
+    else:
+        p.add_run(text)
+
+
+def add_page_number(paragraph) -> None:
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    paragraph.paragraph_format.keep_with_next = True
-    paragraph.paragraph_format.keep_together = True
     run = paragraph.add_run()
-    run.add_picture(str(image_path), width=Inches(width_inches))
-    caption_paragraph = add_caption(doc, caption)
-    caption_paragraph.paragraph_format.keep_with_next = True
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = " PAGE "
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    run._r.extend([begin, instr, end])
 
 
-def add_cover_page(doc):
-    add_paragraph(doc, "FUEL PRICE PREDICTION SYSTEM USING MACHINE LEARNING", alignment=WD_ALIGN_PARAGRAPH.CENTER, bold=True, size=16, space_after=18)
-    add_paragraph(doc, "RYAN ALFRED NYAMBATI", alignment=WD_ALIGN_PARAGRAPH.CENTER, bold=True, size=14)
-    add_paragraph(doc, "SCT222-0195/2021", alignment=WD_ALIGN_PARAGRAPH.CENTER, size=14)
-    add_paragraph(doc, "Department of Information Technology", alignment=WD_ALIGN_PARAGRAPH.CENTER, size=14)
-    add_paragraph(doc, "Jomo Kenyatta University of Agriculture and Technology", alignment=WD_ALIGN_PARAGRAPH.CENTER, size=14)
-    add_paragraph(doc, "Supervisor: ________________________________", alignment=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=18)
-    add_paragraph(
-        doc,
-        "A research project submitted to the Department of Information Technology in partial fulfillment of the requirement for the award of the degree of Bachelor of Science in Information Technology at Jomo Kenyatta University of Agriculture and Technology.",
-        alignment=WD_ALIGN_PARAGRAPH.CENTER,
-        italic=True,
-        size=14,
-        space_after=18,
-    )
-    add_paragraph(doc, "2026", alignment=WD_ALIGN_PARAGRAPH.CENTER, size=14)
+def add_toc(doc: Document) -> None:
+    p = doc.add_paragraph()
+    run = p.add_run()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = ' TOC \\o "1-3" \\h \\z \\u '
+    separate = OxmlElement("w:fldChar")
+    separate.set(qn("w:fldCharType"), "separate")
+    placeholder = OxmlElement("w:t")
+    placeholder.text = "Right-click and choose Update Field if the table is not populated."
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    run._r.extend([begin, instr, separate, placeholder, end])
 
 
-def add_declaration(doc):
-    add_heading(doc, "DECLARATION", level=1, center=True)
-    add_paragraph(
-        doc,
-        "This research project is my original work and has not been presented for the award of a degree in any other university.",
-    )
-    add_paragraph(doc, "Student Name: Ryan Alfred Nyambati")
-    add_paragraph(doc, "Signature: ________________________________        Date: __________________")
-    doc.add_paragraph("")
-    add_paragraph(
-        doc,
-        "This research project has been submitted for examination with my approval as the University Supervisor.",
-    )
-    add_paragraph(doc, "Supervisor Name: ________________________________")
-    add_paragraph(doc, "Signature: ________________________________        Date: __________________")
+def configure_document(doc: Document) -> None:
+    section = doc.sections[0]
+    # Narrative-proposal preset used for the formal academic report.
+    section.top_margin = Inches(1.0)
+    section.bottom_margin = Inches(1.0)
+    section.left_margin = Inches(1.0)
+    section.right_margin = Inches(1.0)
+    section.header_distance = Inches(0.492)
+    section.footer_distance = Inches(0.492)
+
+    normal = doc.styles["Normal"]
+    normal.font.name = "Calibri"
+    normal.font.size = Pt(11)
+    normal.font.color.rgb = RGBColor.from_string(INK)
+    normal.paragraph_format.space_after = Pt(8)
+    normal.paragraph_format.line_spacing = 1.333
+
+    for name, size, color, before, after in [
+        ("Title", 24, BLUE, 0, 12),
+        ("Heading 1", 16, BLUE, 16, 8),
+        ("Heading 2", 13, MID_BLUE, 12, 6),
+        ("Heading 3", 11, INK, 8, 4),
+    ]:
+        style = doc.styles[name]
+        style.font.name = "Calibri"
+        style.font.size = Pt(size)
+        style.font.bold = True
+        style.font.color.rgb = RGBColor.from_string(color)
+        style.paragraph_format.space_before = Pt(before)
+        style.paragraph_format.space_after = Pt(after)
+        style.paragraph_format.keep_with_next = True
+
+    for sec in doc.sections:
+        hp = sec.header.paragraphs[0]
+        hp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        r = hp.add_run("MAFUTAPLAN  |  NAIROBI FUEL PRICE PROJECT")
+        r.font.size = Pt(8)
+        r.font.bold = True
+        r.font.color.rgb = RGBColor.from_string(MUTED)
+        add_page_number(sec.footer.paragraphs[0])
+
+    settings = doc.settings._element
+    update = OxmlElement("w:updateFields")
+    update.set(qn("w:val"), "true")
+    settings.append(update)
 
 
-def add_front_matter_placeholders(doc):
-    add_heading(doc, "ABSTRACT", level=1, center=True)
+def generate_assets() -> None:
+    CHARTS.mkdir(parents=True, exist_ok=True)
+    DIAGRAMS.mkdir(parents=True, exist_ok=True)
+    history = pd.read_csv(DATA / "nairobi_price_history.csv", parse_dates=["Cycle"])
+    components = pd.read_csv(DATA / "price_components.csv")
+    component_history = pd.read_csv(DATA / "nairobi_component_history.csv", parse_dates=["Effective_From"])
 
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, ax = plt.subplots(figsize=(10, 4.8))
+    for column, label, color in [
+        ("Super_Petrol", "Super Petrol", "#174A7E"),
+        ("Diesel", "Diesel", "#E67E22"),
+        ("Kerosene", "Kerosene", "#2E8B57"),
+    ]:
+        ax.plot(history["Cycle"], history[column], label=label, linewidth=2, color=color)
+    ax.set(title="Nairobi EPRA Maximum Retail Pump Prices", ylabel="KES per litre", xlabel="Monthly cycle")
+    ax.legend(ncol=3, frameon=False)
+    fig.tight_layout()
+    fig.savefig(CHARTS / "figure_3_1_fuel_price_trends.png", dpi=190)
+    plt.close(fig)
 
-def main():
-    DOCS_DIR.mkdir(exist_ok=True)
+    pivot = components.pivot(index="Component", columns="Fuel", values="KES_Per_Litre").fillna(0)
+    order = [c for c in ["Super Petrol", "Diesel", "Kerosene"] if c in pivot.columns]
+    fig, ax = plt.subplots(figsize=(9.5, 5.4))
+    bottom = [0.0] * len(order)
+    colors = plt.cm.tab20.colors
+    for idx, (component, row) in enumerate(pivot.iterrows()):
+        values = [float(row.get(fuel, 0)) for fuel in order]
+        ax.bar(order, values, bottom=bottom, label=component, color=colors[idx % len(colors)])
+        bottom = [a + b for a, b in zip(bottom, values)]
+    ax.set(title="Published Nairobi Pump-Price Composition", ylabel="KES per litre")
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=7, frameon=False)
+    fig.tight_layout()
+    fig.savefig(CHARTS / "figure_3_2_price_components.png", dpi=190)
+    plt.close(fig)
 
-    data = pd.read_csv(ROOT / "fuel_prices.csv")
-    data["Date"] = pd.to_datetime(data["Date"], format="%b-%Y")
-    data = data.sort_values("Date").reset_index(drop=True)
-    data["Month_num"] = range(1, len(data) + 1)
+    aggregate_columns = ["Landed_Cost", "Distribution_Storage", "Margins", "Stabilization_Adjustment", "Taxes_Levies"]
+    means = component_history.groupby("Fuel")[aggregate_columns].mean().reindex(["Super Petrol", "Diesel", "Kerosene"])
+    fig, ax = plt.subplots(figsize=(9.5, 5.0))
+    means.plot(kind="bar", stacked=True, ax=ax, color=["#E67E22", "#4C78A8", "#72B7B2", "#B279A2", "#174A7E"])
+    ax.set(title="Average Reviewed EPRA Nairobi Cost Composition", ylabel="KES per litre", xlabel="")
+    ax.tick_params(axis="x", rotation=0)
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8, frameon=False)
+    fig.tight_layout()
+    fig.savefig(CHARTS / "figure_3_3_component_history.png", dpi=190)
+    plt.close(fig)
 
-    descriptive_stats = pd.read_csv(APPENDICES_DIR / "Descriptive_Statistics.csv")
-    metrics_table = pd.read_csv(APPENDICES_DIR / "Model_Metrics.csv")
-    test_cases = pd.read_csv(APPENDICES_DIR / "Test_Cases.csv")
-    data_extraction = pd.read_csv(APPENDICES_DIR / "Data_Extraction_Sheet.csv")
-    sample_dataset = pd.read_csv(APPENDICES_DIR / "Sample_Dataset.csv")
-    project_schedule = pd.read_csv(APPENDICES_DIR / "Project_Schedule.csv")
-    project_budget = pd.read_csv(APPENDICES_DIR / "Project_Budget.csv")
+    metrics = pd.read_csv(ROOT / "appendices" / "Model_Metrics.csv")
+    fig, ax = plt.subplots(figsize=(9.2, 4.7))
+    x = range(len(metrics))
+    ax.bar([i - 0.18 for i in x], metrics["Holdout_MAE"], width=0.36, label="Selected-method MAE", color="#174A7E")
+    ax.bar([i + 0.18 for i in x], metrics["Baseline_MAE"], width=0.36, label="Baseline MAE", color="#9AA5B1")
+    ax.set_xticks(list(x), metrics["Fuel"])
+    ax.set(ylabel="KES per litre", title="Untouched Ten-Cycle Holdout Performance")
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(CHARTS / "figure_4_1_holdout_mae.png", dpi=190)
+    plt.close(fig)
 
-    doc = Document()
-    style_document(doc)
-    set_portrait(doc.sections[0])
-    doc.sections[0].different_first_page_header_footer = True
-
-    add_cover_page(doc)
-    front_matter_section = doc.add_section(WD_SECTION.NEW_PAGE)
-    set_portrait(front_matter_section)
-
-    add_heading(doc, "DECLARATION", level=1, center=True)
-    add_paragraph(
-        doc,
-        "This research project is my original work and has not been presented for the award of a degree in any other university.",
-    )
-    add_paragraph(doc, "Student Name: Ryan Alfred Nyambati")
-    add_paragraph(doc, "Signature: ________________________________        Date: __________________")
-    add_paragraph(
-        doc,
-        "This research project has been submitted for examination with my approval as the University Supervisor.",
-    )
-    add_paragraph(doc, "Supervisor Name: ________________________________")
-    add_paragraph(doc, "Signature: ________________________________        Date: __________________")
-    doc.add_page_break()
-
-    add_heading(doc, "ABSTRACT", level=1, center=True)
-    abstract_text = (
-        "Fuel prices in Kenya change regularly due to movements in international crude oil prices, exchange rates, "
-        "and domestic pricing decisions. These changes affect transport costs, household budgets, and business "
-        "planning. This project developed a simple Fuel Price Prediction System Using Machine Learning to estimate "
-        "next-month prices for Super Petrol, Diesel, and Kerosene. The system was implemented as a Streamlit web "
-        "application that loads a verified CSV dataset, converts the date field to datetime format, sorts the records "
-        "chronologically, generates Month_num, Lag_1, and Lag_2 features, and trains a Linear Regression model for the "
-        "selected fuel type. The dataset used in the project contains 52 monthly observations covering January 2022 to "
-        "April 2026 with the variables Date, USD_KES, Crude_Oil, Super_Petrol, Diesel, and Kerosene. The application "
-        "accepts expected USD/KES and crude oil values from the user, predicts the next-month fuel price in Kenya "
-        "shillings, and displays MAE, MSE, R² Score, a trend chart, and expandable dataset views. The live system was "
-        "tested using smoke, unit, functional, integration, GUI, performance, compatibility, regression, and acceptance "
-        "tests. The results show that the system works correctly as a school project prototype, although the model "
-        "accuracy remains limited because of the small dataset and the simple linear approach. The project therefore "
-        "demonstrates a working machine learning application for fuel price forecasting while also showing the need for "
-        "broader data coverage and additional models in future work."
-    )
-    add_paragraph(doc, abstract_text)
-    doc.add_page_break()
-
-    add_heading(doc, "TABLE OF CONTENTS", level=1, center=True)
-    add_paragraph(doc, "[[TOC]]", alignment=WD_ALIGN_PARAGRAPH.LEFT)
-    doc.add_page_break()
-
-    add_heading(doc, "LIST OF TABLES", level=1, center=True)
-    add_paragraph(doc, "[[LIST_TABLES]]", alignment=WD_ALIGN_PARAGRAPH.LEFT)
-    doc.add_page_break()
-
-    add_heading(doc, "LIST OF FIGURES", level=1, center=True)
-    add_paragraph(doc, "[[LIST_FIGURES]]", alignment=WD_ALIGN_PARAGRAPH.LEFT)
-    doc.add_page_break()
-
-    add_heading(doc, "ACRONYMS", level=1, center=True)
-    acronyms = [
-        "API - Application Programming Interface",
-        "CBK - Central Bank of Kenya",
-        "CSV - Comma-Separated Values",
-        "EPRA - Energy and Petroleum Regulatory Authority",
-        "GUI - Graphical User Interface",
-        "KES - Kenya Shilling",
-        "MAE - Mean Absolute Error",
-        "ML - Machine Learning",
-        "MSE - Mean Squared Error",
-        "R² - Coefficient of Determination",
-        "USD - United States Dollar",
+    fig, ax = plt.subplots(figsize=(10, 4.3))
+    ax.axis("off")
+    boxes = [
+        (0.03, 0.33, 0.18, 0.34, "Official EPRA PDFs\nand live table"),
+        (0.28, 0.33, 0.18, 0.34, "Validated CSV\ndata layer"),
+        (0.54, 0.33, 0.18, 0.34, "Reconstruction, scenario,\nforecast and calculators"),
+        (0.79, 0.33, 0.18, 0.34, "Six-workflow\nStreamlit interface"),
     ]
-    for item in acronyms:
-        add_paragraph(doc, item, alignment=WD_ALIGN_PARAGRAPH.LEFT)
-    doc.add_page_break()
+    for x0, y0, w, h, label in boxes:
+        ax.add_patch(plt.Rectangle((x0, y0), w, h, facecolor="#DDEBF7", edgecolor="#174A7E", linewidth=1.5))
+        ax.text(x0 + w / 2, y0 + h / 2, label, ha="center", va="center", fontsize=10, weight="bold", color="#174A7E")
+    for a, b in zip(boxes, boxes[1:]):
+        ax.annotate("", xy=(b[0], 0.5), xytext=(a[0] + a[2], 0.5), arrowprops=dict(arrowstyle="->", color="#5B6573", lw=1.7))
+    ax.text(0.5, 0.92, "MafutaPlan Logical Architecture", ha="center", va="center", fontsize=15, weight="bold", color="#174A7E")
+    fig.tight_layout()
+    fig.savefig(DIAGRAMS / "system_architecture_diagram.png", dpi=190, bbox_inches="tight")
+    plt.close(fig)
 
-    add_heading(doc, "DEFINITION OF TERMS", level=1, center=True)
-    definitions = [
-        "Crude oil price: The monthly global benchmark oil price used as one of the independent variables in the model.",
-        "Fuel price forecasting: The process of estimating future prices of fuel products using historical data and analytical methods.",
-        "Lagged variable: A previous value of the target variable used to help explain the current or future value.",
-        "Linear regression: A supervised learning method that models the relationship between input variables and a continuous target value.",
-        "Month_num: A sequential month counter created from the ordered dataset to represent the time position of each record.",
-        "Prediction accuracy metrics: Numerical measures such as MAE, MSE, and R² used to assess model performance.",
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.axis("off")
+    nodes = [
+        (0.04, 0.62, "Past Nairobi\npump prices"),
+        (0.04, 0.19, "Reviewed EPRA\ncomponent panel"),
+        (0.39, 0.40, "Hybrid decision-\nsupport services"),
+        (0.73, 0.62, "Next-cycle\nexperimental forecast"),
+        (0.73, 0.19, "Reconstruction, scenarios\nand planning decisions"),
     ]
-    for item in definitions:
-        add_paragraph(doc, item)
+    for x0, y0, label in nodes:
+        ax.add_patch(plt.Rectangle((x0, y0), 0.22, 0.2, facecolor="#F2F4F7", edgecolor="#2E74B5", linewidth=1.5))
+        ax.text(x0 + 0.11, y0 + 0.1, label, ha="center", va="center", fontsize=10, weight="bold")
+    for start, end in [(nodes[0], nodes[2]), (nodes[1], nodes[2]), (nodes[2], nodes[3]), (nodes[3], nodes[4])]:
+        ax.annotate("", xy=(end[0], end[1] + 0.1), xytext=(start[0] + 0.22, start[1] + 0.1), arrowprops=dict(arrowstyle="->", color="#174A7E", lw=1.5))
+    ax.text(0.5, 0.94, "Conceptual Framework", ha="center", fontsize=15, weight="bold", color="#174A7E")
+    fig.tight_layout()
+    fig.savefig(DIAGRAMS / "conceptual_framework.png", dpi=190, bbox_inches="tight")
+    plt.close(fig)
 
-    chapter_section = doc.add_section(WD_SECTION.NEW_PAGE)
-    set_portrait(chapter_section)
 
-    add_heading(doc, "CHAPTER 1: INTRODUCTION", level=1, center=True)
-    chapter_1 = {
-        "1.1 Background": [
-            "Fuel pricing remains an important economic issue because petroleum products directly affect transport, production, and household expenditure. Across the world, fuel prices respond to movements in crude oil markets, exchange rates, regulatory decisions, and supply chain conditions. When these drivers change, consumers and businesses experience immediate cost adjustments, making fuel price forecasting a useful planning tool (Hyndman & Athanasopoulos, 2021; World Bank, 2026).",
-            "In Kenya, maximum retail prices for Super Petrol, Diesel, and Kerosene are published by the Energy and Petroleum Regulatory Authority (EPRA) on a regular cycle. At the same time, the Kenya shilling to United States dollar exchange rate influences the local cost of imported petroleum products, while international crude oil prices signal global market pressure (Central Bank of Kenya, 2025; Energy and Petroleum Regulatory Authority, n.d.). These linked factors provide a strong basis for building a simple prediction model using public monthly data."
-        ],
-        "1.2 Project Overview": [
-            "This project focuses on the design and implementation of a Fuel Price Prediction System Using Machine Learning. The system was developed as a Streamlit web application that predicts the next-month price of Super Petrol, Diesel, or Kerosene after the user selects a fuel type and enters expected USD/KES and crude oil values.",
-            "The project uses a verified monthly dataset stored in CSV format and applies a linear regression model trained on five input features: Month_num, USD_KES, Crude_Oil, Lag_1, and Lag_2. The system also displays model evaluation metrics, a fuel trend chart, and both the historical dataset and lagged dataset so that the output is easy to explain during project defense."
-        ],
-        "1.3 Statement of the Problem": [
-            "Fuel prices in Kenya are important to households, transport operators, and small businesses, yet monthly price movements are difficult to estimate using observation alone. Users who need to plan transport budgets or compare fuel trends often depend on manual guesswork, scattered public notices, or simple spreadsheet checks that do not combine exchange rate data, crude oil prices, and previous fuel price patterns in one system.",
-            "Although machine learning can support structured prediction, many existing examples are either too advanced, too data-heavy, or not localized for a small academic project. There was therefore a need for a simple and functional system that could use verified monthly public data to predict next-month Kenyan fuel prices in a way that is easy to implement, test, and explain."
-        ],
-        "1.4 Proposed Solution": [
-            "This research proposes the development of a Fuel Price Prediction System Using Machine Learning that predicts next-month prices for Super Petrol, Diesel, and Kerosene. The system uses a verified CSV dataset and a Linear Regression model trained on Month_num, USD_KES, Crude_Oil, Lag_1, and Lag_2.",
-            "The solution is implemented as a Streamlit application so that the user can select a fuel type, enter expected exchange rate and crude oil values, and receive a price estimate in Kenya shillings together with model accuracy metrics and trend visualization. The system therefore combines data preparation, prediction, evaluation, and presentation in one simple interface."
-        ],
-        "1.5 Objectives": [
-            "General Objective: To design and implement a machine learning system for predicting next-month fuel prices in Kenya.",
-            "Specific Objectives:",
-            "1. To analyze verified monthly fuel price, exchange rate, and crude oil data relevant to the project.",
-            "2. To design a fuel price prediction system that uses lagged variables and linear regression.",
-            "3. To implement the designed system using Streamlit, Pandas, and Scikit-learn.",
-            "4. To test and evaluate the developed system using functional, model, and interface-based tests."
-        ],
-        "1.6 Research Questions": [
-            "1. Which monthly variables are most appropriate for a simple fuel price prediction model in this project?",
-            "2. How can lagged fuel price variables be combined with exchange rate and crude oil data in a beginner-friendly machine learning system?",
-            "3. How can a Streamlit application be used to present next-month fuel price predictions clearly to a user?",
-            "4. How well does the developed system perform when evaluated using standard regression metrics and software testing procedures?"
-        ],
-        "1.7 Justification": [
-            "The project is justified because fuel price changes affect planning and decision-making at both individual and organizational levels. A simple forecasting tool can help users understand the relationship between historical prices, crude oil prices, and exchange rate changes without requiring advanced data science knowledge.",
-            "The project is also academically relevant because it demonstrates how a small, publicly sourced dataset can be prepared, modeled, and presented using a practical machine learning workflow. For the student researcher, the project provides experience in data preparation, feature engineering, user interface design, testing, and documentation."
-        ],
-        "1.8 Proposed Research and System Methodologies": [
-            "The research component of the project followed an applied and quantitative approach. Public monthly data on fuel prices, exchange rates, and crude oil prices were compiled through document review and captured using a data extraction sheet. The resulting dataset was then cleaned, checked, summarized, and analyzed using Python tools.",
-            "The system component followed an iterative prototyping methodology. This approach was suitable because the application was small in scope and benefited from repeated improvement of the dataset workflow, user interface, and prediction logic. The method allowed the system to be developed in manageable stages from data loading to model training, interface design, testing, and documentation."
-        ],
-        "1.9 Scope": [
-            "The project is limited to monthly fuel price prediction for Kenya using three target variables: Super Petrol, Diesel, and Kerosene. The implemented system uses a verified CSV dataset with records from January 2022 to April 2026 and predicts one month ahead using Month_num, USD_KES, Crude_Oil, Lag_1, and Lag_2.",
-            "The project does not include real-time data integration, mobile deployment, or advanced forecasting algorithms beyond Linear Regression. Its purpose is to provide a functional undergraduate prototype that is easy to understand, defend, and improve in future work."
-        ],
-    }
-
-    for heading, paragraphs in chapter_1.items():
-        add_heading(doc, heading, level=2)
-        for paragraph in paragraphs:
-            add_paragraph(doc, paragraph)
-
+def front_matter(doc: Document) -> None:
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Inches(0.6)
+    r = p.add_run("JOMO KENYATTA UNIVERSITY OF\nAGRICULTURE AND TECHNOLOGY")
+    r.bold = True
+    r.font.size = Pt(14)
+    r.font.color.rgb = RGBColor.from_string(BLUE)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Inches(0.8)
+    r = p.add_run("DESIGN AND IMPLEMENTATION OF A HYBRID COST-BASED MODEL FOR\nFORECASTING REGULATED FUEL PRICES IN NAIROBI, KENYA")
+    r.bold = True
+    r.font.size = Pt(24)
+    r.font.color.rgb = RGBColor.from_string(BLUE)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = p.add_run("MAFUTAPLAN")
+    r.bold = True
+    r.font.size = Pt(15)
+    r.font.color.rgb = RGBColor.from_string(MID_BLUE)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Inches(0.8)
+    p.add_run("RYAN ALFRED NYAMBATI\nSCT222-0195/2021").bold = True
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Inches(0.65)
+    p.add_run("A project report submitted in partial fulfilment of the requirements for the award of a Bachelor's degree at Jomo Kenyatta University of Agriculture and Technology.")
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Inches(0.55)
+    p.add_run("JULY 2026").bold = True
     doc.add_page_break()
-    add_heading(doc, "CHAPTER 2: LITERATURE REVIEW", level=1, center=True)
-    chapter_2 = {
-        "2.1 Introduction": [
-            "This chapter reviews the literature related to fuel price forecasting, machine learning, time-based feature engineering, and simple software architecture choices for predictive systems. The review supports the selection of the variables, model, and implementation approach used in this project."
-        ],
-        "2.2 Theoretical Review": [
-            "Machine learning is commonly defined as the development of models that learn patterns from data and use those patterns to make predictions on unseen cases. In supervised learning, the model is trained using input variables and known target values. For this project, the targets are the monthly prices of Super Petrol, Diesel, and Kerosene, while the predictors are Month_num, USD_KES, Crude_Oil, Lag_1, and Lag_2 (Géron, 2022; James et al., 2021).",
-            "Linear regression remains one of the most interpretable approaches for continuous prediction problems because it estimates how changes in predictor variables relate to changes in the target value. It is therefore suitable for an undergraduate project where transparency and ease of explanation are important. Scikit-learn documents LinearRegression as an ordinary least squares method that minimizes the residual sum of squares between observed and predicted values (scikit-learn developers, n.d.).",
-            "Time-dependent problems also benefit from lagged variables because previous values often carry information about the next observation. Forecasting literature emphasizes that recent historical behavior is useful in short-term prediction, especially when the dataset is ordered in time and when future values are estimated from past trends rather than from random samples (Hyndman & Athanasopoulos, 2021; Montgomery et al., 2024). In this project, Lag_1 and Lag_2 were introduced to capture the most recent month-to-month behavior of the selected fuel."
-        ],
-        "2.3 Case Study Review": [
-            "Kenya offers a useful local application context because monthly petroleum prices are formally published by EPRA and are influenced by both international and domestic factors. EPRA's monthly price publications and pump price formula show that fuel prices are linked to regulated pricing decisions, while the Central Bank of Kenya publishes exchange rate information that reflects currency conditions relevant to import costs (Energy and Petroleum Regulatory Authority, n.d.; Central Bank of Kenya, 2025).",
-            "Recent studies also show continued interest in forecasting fuel-related prices using data-driven methods. Alwadi (2025) applied time series, machine learning, and deep learning models to fuel sales price forecasting and found that data-driven models can support operational decisions. Cohen (2025) compared econometric and machine learning techniques for short-term oil price forecasting and showed that lagged behavior and multiple external factors remain important when modeling energy price movements. These studies support the decision to use a data-based forecasting approach, although they are more advanced than the scope of this project."
-        ],
-        "2.4 Integration and Architecture": [
-            "Several implementation choices are possible for a forecasting system. A spreadsheet-only approach is simple but limited in repeatability and interface quality. A database-backed enterprise application may be powerful but would add unnecessary complexity for an undergraduate prototype. A lightweight web-based interface with a flat CSV dataset and a simple model provides a better balance between usability and implementation effort.",
-            "For this reason, the project adopted a small layered architecture. The data layer stores verified monthly records in CSV format, the processing layer handles cleaning and feature generation with Pandas, the model layer trains Linear Regression using Scikit-learn, and the presentation layer uses Streamlit to display predictions, charts, and datasets (pandas developers, n.d.; Streamlit, n.d.). This structure is appropriate for a school project because it is functional, minimal, and easy to defend."
-        ],
-        "2.5 Summary": [
-            "The reviewed literature shows that fuel and oil price forecasting can be approached using both statistical and machine learning methods. It also confirms the value of time ordering, lagged variables, and transparent evaluation metrics in short-term prediction tasks."
-        ],
-        "2.6 Research Gaps": [
-            "Many published studies focus on large datasets, advanced hybrid models, or specialized forecasting environments. Fewer examples address a small, transparent, Kenya-focused academic system that can be implemented with public monthly data and explained easily in an undergraduate defense. This project addresses that gap by providing a localized, beginner-friendly web application that uses interpretable features and a simple regression workflow."
-        ],
-    }
 
-    for heading, paragraphs in chapter_2.items():
-        add_heading(doc, heading, level=2)
-        for paragraph in paragraphs:
-            add_paragraph(doc, paragraph)
-
+    add_heading(doc, "DECLARATION", 1)
+    add_para(doc, "I declare that this project report is my original work and has not been submitted to any other university for an academic award. All sources used have been acknowledged in the text and reference list.")
+    doc.add_paragraph("Student: Ryan Alfred Nyambati     Signature: __________________     Date: ______________")
+    doc.add_paragraph("Supervisor: ____________________     Signature: __________________     Date: ______________")
     doc.add_page_break()
-    add_heading(doc, "CHAPTER 3: SYSTEM ANALYSIS AND DESIGN", level=1, center=True)
-
-    add_heading(doc, "3.1 Introduction", level=2)
-    add_paragraph(doc, "This chapter presents the analysis and design of the Fuel Price Prediction System. It explains the development methodology, feasibility study, requirements elicitation process, data analysis, system specification, logical design, and physical design that guided the final implementation.")
-
-    add_heading(doc, "3.2 System Development Methodology", level=2)
-    add_paragraph(doc, "The project used an iterative prototyping methodology. The work began with identifying the required dataset structure and core prediction workflow, followed by repeated refinement of the preprocessing logic, user interface, and output presentation. This methodology was suitable because the project requirements became clearer as the prototype was tested using real data and screenshots.")
-    add_paragraph(doc, "The main stages were problem definition, data preparation, model design, interface implementation, testing, and documentation. The iterative approach allowed simple feedback loops without over-engineering the system.")
-
-    add_heading(doc, "3.3 Feasibility Study", level=2)
-    feasibility_df = pd.DataFrame(
-        [
-            ["Technical feasibility", "Python, Streamlit, Pandas, and Scikit-learn are readily available and were sufficient for data preparation, model training, and interface development.", "Feasible"],
-            ["Economic feasibility", "The project used open-source tools and a lightweight CSV dataset, reducing development cost to normal academic expenses such as internet, printing, and consultation.", "Feasible"],
-            ["Operational feasibility", "The system workflow is simple: choose a fuel type, enter expected values, and read the predicted price and metrics.", "Feasible"],
-            ["Schedule feasibility", "The project scope was limited to a small forecasting prototype, which made it manageable within the academic project period.", "Feasible"],
-        ],
-        columns=["Aspect", "Observation", "Conclusion"],
-    )
-    add_dataframe_table(doc, feasibility_df, "Table 3.1: Feasibility Study Summary", font_size=11, column_widths=[4.0, 11.0, 3.0])
-
-    add_heading(doc, "3.4 Requirements Elicitation", level=2)
-    add_paragraph(doc, "Requirements were elicited through document review, observation, and the preparation of a data extraction sheet. Public monthly records were gathered from EPRA pump price releases, Central Bank of Kenya exchange rate publications, and World Bank commodity price resources. Because the project uses monthly public data rather than survey responses, the data extraction sheet served as the main collection instrument.")
-    add_paragraph(doc, "For the dataset period used in the final system, the project considered all 52 monthly records from January 2022 to April 2026. This amounted to a census of the selected period rather than a sampled subset.")
-    elicitation_df = pd.DataFrame(
-        [
-            ["Document review", "To identify verified monthly values for fuel prices, exchange rates, and crude oil prices.", "Provided the core numeric dataset."],
-            ["Observation", "To understand what the user needs from the app interface and outputs.", "Guided the interface and visualization requirements."],
-            ["Data extraction sheet", "To record the exact fields collected for the CSV dataset.", "Ensured consistency of variables and units."],
-        ],
-        columns=["Technique", "Purpose", "Outcome"],
-    )
-    add_dataframe_table(doc, elicitation_df, "Table 3.2: Requirements Elicitation Summary", font_size=11, column_widths=[4.2, 8.5, 5.3])
-
-    add_heading(doc, "3.5 Data Analysis", level=2)
-    add_paragraph(doc, f"The final verified dataset contains {len(data)} monthly records running from {data['Date'].iloc[0].strftime('%B %Y')} to {data['Date'].iloc[-1].strftime('%B %Y')}. No missing values were found during checking, which means the dataset was complete for the selected variables. Month_num was then created after sorting the data chronologically.")
-    add_dataframe_table(doc, descriptive_stats, "Table 3.3: Descriptive Statistics of Project Variables", font_size=11, column_widths=[4.0, 3.2, 3.2, 3.2, 3.2])
-
-    add_figure(doc, CHARTS_DIR / "figure_3_1_fuel_price_trends.png", "Figure 3.1: Fuel Price Trends for Super Petrol, Diesel, and Kerosene", width_inches=6.5)
-    add_paragraph(doc, "Figure 3.1 shows that all three fuel prices generally moved upward from 2022, reached high levels around late 2023, and then moderated before rising again in selected months of 2025 and 2026. Super Petrol remained the highest-priced product for most of the period.")
-
-    add_figure(doc, CHARTS_DIR / "figure_3_2_usd_kes_exchange_rate_trend.png", "Figure 3.2: USD/KES Exchange Rate Trend", width_inches=6.3)
-    add_paragraph(doc, "Figure 3.2 indicates that the exchange rate generally increased across the study period, showing depreciation of the Kenya shilling against the US dollar. This trend supports the inclusion of USD/KES as an explanatory variable.")
-
-    add_figure(doc, CHARTS_DIR / "figure_3_3_global_crude_oil_price_trend.png", "Figure 3.3: Global Crude Oil Price Trend", width_inches=6.3)
-    add_paragraph(doc, "Figure 3.3 shows that crude oil prices were volatile, with a stronger spike in 2022 followed by lower levels in later periods. This variation provides a useful external price signal for the prediction model.")
-
-    add_figure(doc, CHARTS_DIR / "figure_3_4_average_fuel_price_comparison.png", "Figure 3.4: Average Fuel Price Comparison", width_inches=5.6)
-    add_paragraph(doc, "Figure 3.4 compares the average prices of the three fuel products. Super Petrol recorded the highest average price, followed by Diesel, while Kerosene had the lowest average price in the dataset.")
-
-    add_heading(doc, "3.6 System Specification", level=2)
-    add_paragraph(doc, "The system requirements were grouped into functional and non-functional categories. Functional requirements describe what the system must do, while non-functional requirements describe how well it should do it.")
-
-    functional_df = pd.DataFrame(
-        [
-            ["FR1", "Load the verified CSV dataset from the project directory."],
-            ["FR2", "Convert the Date field to datetime format and sort records chronologically."],
-            ["FR3", "Create Month_num, Lag_1, and Lag_2 for the selected fuel type."],
-            ["FR4", "Train a Linear Regression model for the selected target fuel."],
-            ["FR5", "Accept expected USD/KES and crude oil values from the user."],
-            ["FR6", "Predict the next-month price and display it in Kenya shillings."],
-            ["FR7", "Display MAE, MSE, and R² Score for the selected model."],
-            ["FR8", "Display a trend chart plus expandable historical and lagged datasets."],
-        ],
-        columns=["Requirement ID", "Functional Requirement"],
-    )
-    add_dataframe_table(doc, functional_df, "Table 3.4: Functional Requirements", font_size=11, column_widths=[4.0, 12.0])
-
-    non_functional_df = pd.DataFrame(
-        [
-            ["NFR1", "Usability", "The interface should be simple and easy to understand."],
-            ["NFR2", "Performance", "The local app should load and respond quickly for a small dataset."],
-            ["NFR3", "Maintainability", "The code should remain short, readable, and beginner-friendly."],
-            ["NFR4", "Reliability", "The system should handle the available dataset consistently without crashing."],
-            ["NFR5", "Portability", "The project should run through `streamlit run app.py` on a standard Python environment."],
-        ],
-        columns=["Requirement ID", "Category", "Non-Functional Requirement"],
-    )
-    add_dataframe_table(doc, non_functional_df, "Table 3.5: Non-Functional Requirements", font_size=11, column_widths=[3.0, 4.0, 9.0])
-
-    add_heading(doc, "3.7 Requirements Analysis and Modeling", level=2)
-    add_paragraph(doc, "The analysis of the gathered requirements showed that the system needed a simple user role, a small set of verified input variables, and direct visibility of both prediction results and supporting data. These needs were modeled through the use case and data flow diagrams below.")
-    add_figure(doc, DIAGRAMS_DIR / "use_case_diagram.png", "Figure 3.5: Use Case Diagram for the Fuel Price Prediction System", width_inches=6.3)
-    add_paragraph(doc, "The use case diagram identifies the main actions performed by the user and the researcher in relation to the prediction system.")
-    add_figure(doc, DIAGRAMS_DIR / "level_0_dfd.png", "Figure 3.6: Level 0 Data Flow Diagram", width_inches=6.2)
-    add_paragraph(doc, "The level 0 DFD shows how user inputs and the verified CSV dataset move through the prediction process to produce charts, tables, and price estimates.")
-
-    add_heading(doc, "3.8 Logical Design", level=2)
-    add_paragraph(doc, "The logical design describes how the application components interact before actual deployment details are considered.")
-
-    add_heading(doc, "3.8.1 System Architecture", level=3)
-    add_paragraph(doc, "The chosen architecture follows a simple layered pattern. The dataset layer stores monthly records in CSV form, the processing layer prepares the dataset and lagged features, the model layer trains and applies linear regression, and the interface layer presents the outputs through Streamlit.")
-    add_figure(doc, DIAGRAMS_DIR / "system_architecture_diagram.png", "Figure 3.7: System Architecture Diagram", width_inches=6.2)
-
-    add_heading(doc, "3.8.2 Control Flow and Process Design", level=3)
-    add_paragraph(doc, "At runtime, the system loads the dataset, prepares the time-based features, trains the model for the currently selected fuel type, accepts user inputs, predicts the next-month price, and then renders the outputs.")
-    add_figure(doc, DIAGRAMS_DIR / "control_flow_diagram.png", "Figure 3.8: Control Flow Diagram", width_inches=5.6)
-    add_paragraph(doc, "The sequence in Figure 3.8 matches the implementation in app.py and reflects the order in which prediction tasks are executed.")
-
-    add_heading(doc, "3.8.3 Design for Non-Functional Requirements", level=3)
-    add_paragraph(doc, "Usability was addressed by keeping the interface small and by presenting only one fuel selection, two numeric inputs, a prediction output, metric cards, and expandable dataset views. Maintainability was improved by separating the code into small helper functions for loading data, creating lagged features, training the model, and preparing the future input frame.")
-    add_paragraph(doc, "Basic reliability was supported through dataset column validation and chronological sorting before training. Performance needs were modest because the project uses a small CSV dataset and a light regression model, making local execution fast enough for classroom demonstration.")
-
-    add_heading(doc, "3.9 Physical Design", level=2)
-    add_paragraph(doc, "The physical design defines the concrete storage structure and user interface used in the final implementation.")
-
-    add_heading(doc, "3.9.1 Database Design", level=3)
-    add_paragraph(doc, "The system uses a flat CSV file rather than a relational database. This choice was intentional because the project dataset is small, static, and easy to distribute within the repository. The physical design therefore focuses on field structure, data types, and the way the file is read into Pandas.")
-    dataset_design_df = pd.DataFrame(
-        [
-            ["Date", "Text converted to datetime", "Month and year of the observation."],
-            ["USD_KES", "Float", "Expected or observed exchange rate."],
-            ["Crude_Oil", "Float", "Observed global crude oil price in USD per barrel."],
-            ["Super_Petrol", "Float", "Monthly fuel price target for Super Petrol."],
-            ["Diesel", "Float", "Monthly fuel price target for Diesel."],
-            ["Kerosene", "Float", "Monthly fuel price target for Kerosene."],
-        ],
-        columns=["Field", "Data Type", "Description"],
-    )
-    add_dataframe_table(doc, dataset_design_df, "Table 3.6: CSV Dataset Design", font_size=11, column_widths=[4.0, 4.5, 10.0])
-
-    add_heading(doc, "3.9.2 User Interface Design", level=3)
-    add_paragraph(doc, "The interface design was kept deliberately minimal so that the application remains easy to explain during project defense. The input screen uses a fuel selector and two numeric fields, while the output screen shows prediction, model evaluation metrics, a chart, and expandable tables.")
-    add_figure(doc, DIAGRAMS_DIR / "input_form_wireframe.png", "Figure 3.9: Input Form Wireframe", width_inches=6.3)
-    add_paragraph(doc, "Figure 3.9 shows the input controls required before a prediction is made.")
-    add_figure(doc, DIAGRAMS_DIR / "output_interface_wireframe.png", "Figure 3.10: Output Interface Wireframe", width_inches=5.9)
-    add_paragraph(doc, "Figure 3.10 shows the prediction, metrics, chart, and dataset expanders.")
-
+    add_heading(doc, "DEDICATION", 1)
+    add_para(doc, "This work is dedicated to my family, lecturers, classmates, and everyone who supported my education and encouraged the responsible use of computing to solve practical Kenyan problems.")
     doc.add_page_break()
-    add_heading(doc, "CHAPTER 4: SYSTEM IMPLEMENTATION AND TESTING, CONCLUSIONS AND RECOMMENDATIONS", level=1, center=True)
-
-    add_heading(doc, "4.1 Introduction", level=2)
-    add_paragraph(doc, "This chapter explains the implementation environment, the system code generation process, the tests applied to the working application, the user guide, the main conclusions, and the recommendations for future improvement.")
-
-    add_heading(doc, "4.2 Environment and Tools", level=2)
-    env_df = pd.DataFrame(
-        [
-            ["Programming language", "Python 3.12", "Used for data processing, model training, and app logic."],
-            ["Frontend and presentation", "Streamlit 1.56.0", "Used to build the web interface."],
-            ["Data handling", "Pandas", "Used for CSV loading, sorting, and feature creation."],
-            ["Machine learning", "Scikit-learn", "Used for Linear Regression and evaluation metrics."],
-            ["Visualization", "Streamlit charts and Matplotlib", "Used for the live chart and report figures."],
-            ["Notebook environment", "Jupyter Notebook", "Used for exploratory data analysis and chart generation."],
-        ],
-        columns=["Component", "Tool", "Purpose"],
-    )
-    add_dataframe_table(doc, env_df, "Table 4.1: Environment and Tools", font_size=11, column_widths=[4.5, 4.5, 8.0])
-
-    add_heading(doc, "4.3 System Code Generation", level=2)
-    add_paragraph(doc, "The final source code was simplified so that the main workflow could be explained clearly. The code first loads the verified CSV file, validates the expected schema, converts the Date field to datetime format, sorts the records, and creates Month_num.")
-    add_code_block(
-        doc,
-        """
-data = pd.read_csv(DATA_PATH)
-validate_dataset(data)
-data["Date"] = pd.to_datetime(data["Date"], format="%b-%Y")
-data = data.sort_values("Date").reset_index(drop=True)
-data["Month_num"] = range(1, len(data) + 1)
-        """,
-    )
-    add_paragraph(doc, "After the dataset is prepared, the application creates the lagged variables for the selected fuel type. Lag_1 stores the previous month price and Lag_2 stores the price from two months earlier.")
-    add_code_block(
-        doc,
-        """
-lagged_data["Lag_1"] = lagged_data[fuel_column].shift(1)
-lagged_data["Lag_2"] = lagged_data[fuel_column].shift(2)
-lagged_data = lagged_data.dropna().reset_index(drop=True)
-        """,
-    )
-    add_paragraph(doc, "The model is then trained using Month_num, USD_KES, Crude_Oil, Lag_1, and Lag_2. A future input frame is created from the user's expected values and the most recent historical lagged prices.")
-    add_code_block(
-        doc,
-        """
-model = LinearRegression()
-model.fit(x_train, y_train)
-future_input = pd.DataFrame({
-    "Month_num": [next_month_num],
-    "USD_KES": [usd_kes],
-    "Crude_Oil": [crude_oil],
-    "Lag_1": [last_price],
-    "Lag_2": [second_last_price],
-})
-prediction = model.predict(future_input)[0]
-        """,
-    )
-    add_paragraph(doc, "Finally, the system displays the predicted price, evaluation metrics, a trend chart, and the historical and lagged datasets in expandable sections. This design keeps the implementation short while still covering the full project requirement.")
-
-    add_heading(doc, "4.4 Testing", level=2)
-    add_paragraph(doc, "Testing was carried out to confirm that the application could load the dataset, create lag features, train the model, display the interface correctly, and respond to the required user actions. The project used a combination of smoke, unit, functional, integration, GUI, input validation, model, performance, compatibility, regression, and acceptance testing.")
-    add_dataframe_table(doc, metrics_table, "Table 4.2: Model Evaluation Results by Fuel Type", font_size=11, column_widths=[6.0, 3.5, 3.5, 3.5])
-
-    test_section = doc.add_section(WD_SECTION.NEW_PAGE)
-    set_landscape(test_section)
-    add_chunked_dataframe_tables(
-        doc,
-        test_cases,
-        "Table 4.3: Test Cases and Results",
-        rows_per_table=7,
-        font_size=7.5,
-        column_widths=[1.5, 2.7, 2.5, 4.8, 4.7, 5.2, 1.3],
-    )
-
-    portrait_back = doc.add_section(WD_SECTION.NEW_PAGE)
-    set_portrait(portrait_back)
-
-    add_figure(doc, SCREENSHOTS_DIR / "application_input_form.png", "Figure 4.1: Application Input Form", width_inches=6.6)
-    add_figure(doc, SCREENSHOTS_DIR / "super_petrol_prediction_output.png", "Figure 4.2: Super Petrol Prediction Output", width_inches=6.6)
-    add_figure(doc, SCREENSHOTS_DIR / "diesel_prediction_output.png", "Figure 4.3: Diesel Prediction Output", width_inches=6.6)
-    add_figure(doc, SCREENSHOTS_DIR / "kerosene_prediction_output.png", "Figure 4.4: Kerosene Prediction Output", width_inches=6.6)
-    add_figure(doc, SCREENSHOTS_DIR / "model_evaluation_section.png", "Figure 4.5: Model Evaluation Section", width_inches=6.6)
-    add_figure(doc, SCREENSHOTS_DIR / "fuel_price_trend_chart.png", "Figure 4.6: Fuel Price Trend Chart", width_inches=6.6)
-    add_figure(doc, SCREENSHOTS_DIR / "historical_dataset_display.png", "Figure 4.7: Historical Dataset Display", width_inches=6.6)
-    add_figure(doc, SCREENSHOTS_DIR / "lagged_dataset_display.png", "Figure 4.8: Lagged Dataset Display", width_inches=6.6)
-
-    add_heading(doc, "4.5 User Guide", level=2)
-    add_paragraph(doc, "The system can be used through the following simple steps:")
-    user_steps = [
-        "1. Install the project dependencies using `pip install -r requirements.txt`.",
-        "2. Start the application using `streamlit run app.py`.",
-        "3. Open the local Streamlit URL shown in the terminal.",
-        "4. Select the fuel type to predict: Super Petrol, Diesel, or Kerosene.",
-        "5. Enter the expected USD/KES exchange rate and crude oil price for the next month.",
-        "6. Read the predicted fuel price in Kenya shillings.",
-        "7. Review the displayed MAE, MSE, and R² Score values.",
-        "8. View the line chart, historical dataset, and lagged dataset for additional context.",
-    ]
-    for step in user_steps:
-        add_paragraph(doc, step, alignment=WD_ALIGN_PARAGRAPH.LEFT)
-
-    add_heading(doc, "4.6 Conclusions", level=2)
-    add_paragraph(doc, "The project achieved its main objective by developing a functional Fuel Price Prediction System Using Machine Learning. The final system loads a verified dataset, prepares lagged variables, trains a Linear Regression model, predicts next-month fuel prices, and displays the required supporting outputs in a simple web interface.")
-    add_paragraph(doc, "The most significant accomplishment is that the project integrates data preparation, model training, evaluation, visualization, and user interaction in one beginner-friendly application. However, the evaluation results also show a limitation: the small dataset and simple model reduce generalization performance, as indicated by low or negative R² values. This means the system is best presented as an academic prototype rather than a production forecasting tool.")
-
-    add_heading(doc, "4.7 Recommendations", level=2)
-    add_paragraph(doc, "Future work should extend the dataset to cover more years and possibly more explanatory variables, such as inflation, transport cost indicators, or international petroleum product benchmarks where appropriate and verified.")
-    add_paragraph(doc, "The project can also be improved by comparing Linear Regression with other forecasting models such as Random Forest, ARIMA, or gradient boosting. In addition, future versions could store data in a database, automate data updates, and provide a downloadable prediction report for users.")
-
+    add_heading(doc, "ACKNOWLEDGEMENT", 1)
+    add_para(doc, "I thank God for the strength to complete this project. I am grateful to my supervisor and the lecturers of Jomo Kenyatta University of Agriculture and Technology for their academic guidance. I also acknowledge the Energy and Petroleum Regulatory Authority and the Kenya National Bureau of Statistics for publishing the official information that made a transparent, evidence-based prototype possible. Finally, I thank my family and colleagues for their support during analysis, implementation, and testing.")
     doc.add_page_break()
-    add_heading(doc, "REFERENCES", level=1, center=True)
-    references = [
-        "Alwadi, M. A. (2025). Fuel sales price forecasting using time series, machine learning, and deep learning models. Engineering, Technology & Applied Science Research, 15(3), 22360-22366. https://doi.org/10.48084/etasr.10348",
-        "Central Bank of Kenya. (2025, April 2). Commercial banks' average exchange rates for major currencies / KES (closing of market) [PDF]. https://www.centralbank.go.ke/uploads/cbk_indicative_rates/620318092_CBK%20INDICATIVE%20RATES%203.4.2025.pdf",
-        "Cohen, G. (2025). A comprehensive study on short-term oil price forecasting using econometric and machine learning techniques. Machine Learning and Knowledge Extraction, 7(4), 127. https://doi.org/10.3390/make7040127",
-        "Energy and Petroleum Regulatory Authority. (n.d.). EPRA pump prices. Retrieved April 29, 2026, from https://www.epra.go.ke/EPRA%20Pump%20Prices",
-        "Energy and Petroleum Regulatory Authority. (n.d.). Pump price formulae. Retrieved April 29, 2026, from https://www.epra.go.ke/pump-price-formulae",
-        "Géron, A. (2022). Hands-on machine learning with Scikit-learn, Keras, and TensorFlow (3rd ed.). O'Reilly Media.",
+    add_heading(doc, "ABSTRACT", 1)
+    add_para(doc, "Fuel-price changes affect household budgets, transport operators, delivery businesses, and public planning. A defensible prediction system must account for the fact that Kenya currently imports refined petroleum products and that the Nairobi pump price includes more than the international product cost. This project designed and implemented MafutaPlan, a Nairobi-focused decision-support system that follows the regulated journey from international procurement and Mombasa landing through pipeline transport, depot delivery, margins, taxes, levies, stabilization, and the final retail cap.")
+    add_para(doc, "The implementation uses 55 continuous monthly Nairobi pump-price cycles from January 2022 to July 2026 and a reviewed panel of 33 fuel-cycle component records from 11 official EPRA Annex releases. Twenty comparable records were independently matched against EPRA's live pump-price table. Every component record contains an official PDF link and reconstructs the corresponding Nairobi retail price with zero error after signed stabilization reconciliation and rounding. Forecast features remain restricted to information known before the target cycle. Five methods are compared through expanding-window selection and an untouched final ten-cycle holdout.")
+    add_para(doc, "The previous-cycle baseline won for all three products, showing that regression is evaluated but not forced to win. MafutaPlan therefore separates three analytical layers: deterministic official-price reconstruction, a conservative statistical next-cycle forecast, and a user-controlled cost scenario. The interface provides six workflows and automated tests verify data scope, provenance, cost arithmetic, leakage controls, model evaluation, and output creation. The study concludes that the strongest contribution is an auditable hybrid information system rather than an unsupported claim that a small component sample can precisely predict future regulatory decisions.")
+    p = doc.add_paragraph()
+    p.add_run("Keywords: ").bold = True
+    p.add_run("fuel prices, Nairobi, EPRA, landed cost, price reconstruction, regression, decision support, Streamlit")
+    doc.add_page_break()
+    add_heading(doc, "TABLE OF CONTENTS", 1)
+    add_toc(doc)
+    doc.add_page_break()
+    add_heading(doc, "LIST OF ABBREVIATIONS", 1)
+    add_table(doc, ["Abbreviation", "Meaning"], [
+        ["EPRA", "Energy and Petroleum Regulatory Authority"],
+        ["KPC", "Kenya Pipeline Company"],
+        ["KES", "Kenya shilling"], ["KNBS", "Kenya National Bureau of Statistics"],
+        ["PMS", "Premium Motor Spirit (Super Petrol)"], ["AGO", "Automotive Gas Oil (Diesel)"],
+        ["DPK / IK", "Dual Purpose Kerosene / Illuminating Kerosene"], ["OCR", "Optical character recognition"],
+        ["MAE", "Mean absolute error"], ["RMSE", "Root mean squared error"],
+        ["CSV", "Comma-separated values"], ["UI", "User interface"],
+        ["RBF", "Road Maintenance Levy Fund"], ["VAT", "Value Added Tax"],
+    ], widths=[1.4, 5.2])
+    doc.add_page_break()
+
+
+def chapter_one(doc: Document) -> None:
+    add_heading(doc, "CHAPTER ONE: INTRODUCTION", 1)
+    add_heading(doc, "1.1 Background of the Study", 2)
+    add_para(doc, "Petroleum products remain important inputs to mobility, agriculture, commerce, electricity backup, and household activity in Kenya. A change in the pump price can affect the direct cost of driving and the indirect cost of goods moved by road. Kenya applies a regulated maximum retail price framework administered by EPRA. Price notices normally identify an effective period and maximum price for each product and town. The figures are therefore regulatory ceilings, not a guarantee that every station sells at exactly the same value.")
+    add_para(doc, "The announcement alone does not answer common planning questions. A motorist may ask how much 35 litres will cost, a household may ask how many litres a fixed budget can purchase, and a delivery operator may need to combine distance, vehicle efficiency, and traffic allowance. At the same time, students and policy readers may wish to understand how product cost, taxes, levies, margins, and other adjustments contribute to a published pump price. These needs motivated a combined evidence, calculation, and forecasting system rather than a stand-alone prediction form.")
+    add_para(doc, "Kenya's refinery ceased crude-oil processing in 2013, so the present project follows imported refined Super Petrol, Diesel, and Kerosene rather than assuming local crude refining. Forecasting the regulated pump price is difficult because the observed sequence reflects procurement costs, exchange rates, ocean and port charges, Mombasa-to-Nairobi transport, taxes, margins, stabilization, subsidies, and revisions. A small monthly data set can make flexible models appear accurate in-sample while generalising poorly; the project therefore combines regulated-price reconstruction with a time-ordered forecast experiment.")
+    add_heading(doc, "1.2 Problem Statement", 2)
+    add_para(doc, "Existing price notices provide authoritative numbers but do not provide one compact workflow for tracing a litre from landed product to Nairobi, validating each source, reconstructing the cap, testing a forecast, and converting prices into personal costs. A price-only prototype would also fail to answer why two cycles change differently when landed cost, taxes, distribution or stabilization move. A credible degree project therefore requires one town, real official component data, an explicit revision policy, reproducible cost arithmetic, leakage-safe modelling, and honest uncertainty communication.")
+    add_heading(doc, "1.3 Proposed Solution", 2)
+    add_para(doc, "MafutaPlan is a Nairobi-only Streamlit application backed by validated CSV files and testable Python services. It presents the complete refined-product journey, reconstructs multiple official EPRA price build-ups, calculates fuel and journey costs, compares leakage-safe forecasting methods, and runs declared what-if component scenarios. Source and OCR audit registers make the evidence inspectable, while the application keeps official facts, deterministic calculations, statistical forecasts, and scenarios visually separate.")
+    add_heading(doc, "1.4 Main Objective", 2)
+    add_para(doc, "To design, implement, and evaluate a hybrid cost-based decision-support system that explains, reconstructs, and cautiously forecasts regulated fuel prices in Nairobi using traceable official data.")
+    add_heading(doc, "1.5 Specific Objectives", 2)
+    add_bullets(doc, [
+        "To compile and validate a continuous Nairobi monthly price history and a reviewed multi-cycle EPRA component panel.",
+        "To model the real imported-product journey through Mombasa handling, pipeline transport, Nairobi distribution, margins, taxes, and stabilization.",
+        "To reconstruct official Nairobi prices from published component groups and measure reconciliation error.",
+        "To implement current-price, budget-to-litres, litres-to-cost, and journey-cost tools.",
+        "To compare a transparent baseline and selected regression or ensemble methods using time-ordered validation.",
+        "To evaluate the selected method once on a final untouched holdout and communicate uncertainty honestly.",
+        "To provide source inventory, OCR audit, live-table comparison, documentation, notebook, and automated tests suitable for academic review.",
+    ])
+    add_heading(doc, "1.6 Research Questions", 2)
+    add_bullets(doc, [
+        "Which costs connect an imported refined petroleum product to the final regulated Nairobi pump price?",
+        "Can reviewed EPRA component groups reconstruct published Nairobi retail prices accurately?",
+        "How can official Nairobi pump-price records be structured so that revisions and sources remain auditable?",
+        "Which candidate method provides the lowest expanding-window error before the final holdout?",
+        "How well does the selected method perform on the untouched final ten monthly cycles?",
+        "Can one interface turn regulated prices into useful cost and journey estimates without overstating forecast certainty?",
+    ], numbered=True)
+    add_heading(doc, "1.7 Justification for Selecting Nairobi", 2)
+    add_para(doc, "Nairobi is the most practical town for this project. It is consistently present in EPRA price notices and acts as a widely reported reference market. Selecting it maximises source continuity, makes manual cross-checking easier, and aligns the application with a large, diverse user base including private motorists, public-service operators, logistics businesses, students, and households. A multi-town design would require verified distribution-cost differences for every location and would multiply missing-data and interface risks without improving the core forecasting experiment. Nairobi therefore makes the project easier to complete rigorously, not merely easier to demonstrate.")
+    add_heading(doc, "1.8 Scope", 2)
+    add_para(doc, "The geographical scope is Nairobi. The product scope is Super Petrol, Diesel, and Kerosene. The statistical input contains 55 monthly cycles from January 2022 through July 2026; the reviewed component panel contains 33 rows across 11 official Annex cycles. The current record covers 15 July to 14 August 2026 and the experimental target is August 2026. The system is a local web prototype and does not publish, transact, or replace official EPRA notices.")
+    add_heading(doc, "1.9 Limitations and Delimitations", 2)
+    add_para(doc, "The price series is short and policy-sensitive, while the reviewed component panel is shorter and discontinuous because several official Annex scans are technically degraded. The current next-cycle forecast therefore remains price-lag based. Components support exact reconstruction, historical explanation, and declared scenarios; they are not misrepresented as known future inputs. The system does not claim to forecast future taxes, subsidies, stabilization or emergency revisions.")
+    add_heading(doc, "1.10 Significance of the Study", 2)
+    add_para(doc, "For end users, the project converts a price ceiling into concrete expenditure estimates. For academic reviewers, it demonstrates source governance, time-aware evaluation, baseline comparison, modular implementation, and testing. For future researchers, the revision audit trail and source register provide a reproducible foundation that can be extended when more official observations become available.")
+    doc.add_page_break()
+
+
+def chapter_two(doc: Document) -> None:
+    add_heading(doc, "CHAPTER TWO: LITERATURE REVIEW", 1)
+    add_heading(doc, "2.1 Introduction", 2)
+    add_para(doc, "This chapter reviews the regulatory context, determinants of retail fuel prices, forecasting alternatives, validation practices, uncertainty communication, and usability considerations relevant to the project. The review focuses on concepts that directly informed system design.")
+    add_heading(doc, "2.2 Kenya's Maximum Retail Price Framework", 2)
+    add_para(doc, "EPRA publishes maximum retail petroleum prices under the applicable legal and regulatory framework. Its pump-price formula describes a build-up involving landed cost, storage and distribution charges, taxes and levies, wholesale and dealer margins, and relevant adjustments. The resulting prices vary by town because transport and distribution costs differ. This supports the decision to model one town rather than treat Kenyan prices as geographically identical (EPRA, 2026a).")
+    add_para(doc, "Official values are effective for specified periods and can be revised. The April and May 2026 episodes demonstrate that a dataset should distinguish an original announcement from the price that finally prevailed. Replacing a revised observation without retaining the original would weaken auditability; keeping the original as the model target would misrepresent the price experienced after the revision. The project resolves the tension through separate revision and modelling tables.")
+    add_heading(doc, "2.3 Petroleum Supply Journey to Nairobi", 2)
+    add_para(doc, "Crude oil is extracted, transported and refined internationally into finished products such as PMS, AGO and DPK. Kenya's Mombasa refinery stopped processing crude oil in 2013; the present domestic supply path therefore begins with imported refined petroleum products rather than a local crude-refining stage. Procurement values include the international product price, freight or premium, letters of credit and financing, marine insurance and war-risk charges, quality certification, port and jetty handling, inspection, allowable ocean losses and other prudent import costs specified in the pricing regulations.")
+    add_para(doc, "After landing in Mombasa, product enters primary storage and the Kenya Pipeline Company network. The Nairobi build-up recognizes pipeline transport, allowable pipeline and depot losses, storage, delivery to retail stations within the regulated radius, importer or wholesale margin, dealer margin, excise duty, road and petroleum levies, railway development levy, anti-adulteration levy where applicable, import declaration and merchant-shipping charges, VAT, and any approved stabilization deficit or surplus. This end-to-end chain is the reason the project cannot use crude oil or landed cost alone as the prediction target.")
+    add_heading(doc, "2.4 Drivers and Structural Breaks", 2)
+    add_para(doc, "Retail prices may respond to imported refined-product costs, foreign exchange, freight, financing, taxes, levies, local distribution expenses, margins, subsidies, and stabilization. Inflation reports from KNBS provide useful contextual cross-checks, but correlation does not imply that a value is available at the moment a forecast is made. Policy interventions can create structural breaks that are not learnable from price lags alone. Consequently, a forecast based only on historical pump prices should be interpreted as a conservative statistical extrapolation.")
+    add_heading(doc, "2.5 Forecasting Approaches", 2)
+    add_para(doc, "A previous-cycle or persistence forecast assumes that the next value equals the latest observed value. It has no fitted coefficients, is easy to explain, and can be difficult to beat when regulated prices remain unchanged for several cycles. Linear regression estimates an additive relationship between engineered time features and the target. Ridge regression adds coefficient shrinkage, which can reduce instability in small or correlated designs. Random forests combine decorrelated decision trees and can capture non-linear relationships, while gradient boosting sequentially corrects errors. Flexible models, however, require enough representative observations to avoid overfitting.")
+    add_para(doc, "The project deliberately does not assume that machine learning must win. Hyndman and Athanasopoulos argue that forecasts should be evaluated against simple benchmarks and with procedures matching the intended use. This principle is especially important for a 55-observation policy-sensitive series. Candidate complexity is therefore bounded, hyperparameters are fixed in advance, and the baseline remains eligible for selection.")
+    add_heading(doc, "2.6 Time-Series Validation and Leakage", 2)
+    add_para(doc, "Random train-test splitting is inappropriate when the task is to predict the future from the past because it permits later regimes to influence earlier evaluation. Expanding-window evaluation instead trains on the first segment, predicts the next point, expands the training window, and repeats. Feature leakage occurs when a predictor contains information unavailable at the forecast origin. Same-cycle crude-oil or exchange-rate averages may be analytically interesting but cannot be treated as known next-cycle inputs unless they are themselves forecast through a separate validated process.")
+    add_para(doc, "A further distinction is required between model selection and final evaluation. If the same holdout is used repeatedly to choose the winning model, the holdout becomes part of the tuning process. MafutaPlan selects the model on an earlier sequence of 18 expanding-window forecasts and evaluates that selected model once on the last ten cycles. This design gives the final metrics a clearer interpretation.")
+    add_heading(doc, "2.7 Error Measures and Uncertainty", 2)
+    add_para(doc, "Mean absolute error expresses average error in KES per litre and is easily interpretable. Root mean squared error gives more weight to large misses and exposes sensitivity to abrupt jumps. Both are reported because no single metric fully describes performance. The uncertainty range uses the 10th and 90th percentiles of final holdout residuals added to the point forecast. With only ten residuals, this is an empirical error band, not a calibrated confidence or prediction interval.")
+    add_heading(doc, "2.8 Decision-Support Usability", 2)
+    add_para(doc, "A technically correct number is useful only when a user can interpret it. The interface should state the town, fuel, unit, effective period, and evidence source; distinguish official current data from experimental forecasts; show formulas and assumptions for journey estimates; and prevent invalid inputs such as zero efficiency. The Streamlit framework supports these needs with responsive widgets, metrics, tables, charts, warnings, and cached computation.")
+    add_heading(doc, "2.9 Empirical Review", 2)
+    add_table(doc, ["Source or concept", "Relevant finding", "Use in this project"], [
+        ["EPRA pump-price formula", "Retail caps combine product costs, taxes, levies, margins, and adjustments.", "Component explanation and Nairobi scope."],
+        ["EPRA statistics reports", "Official historical price tables support longitudinal analysis.", "Source-backed monthly history."],
+        ["KNBS CPI reports", "Fuel-price movements affect transport and household cost context.", "Independent contextual cross-check."],
+        ["Forecasting literature", "Benchmarks and time-ordered validation are necessary for honest comparison.", "Baseline, expanding windows, separate holdout."],
+        ["Scikit-learn guidance", "Pipelines, fixed random states, and explicit metrics improve reproducibility.", "Deterministic candidate models and tests."],
+    ], widths=[1.65, 2.5, 2.5], caption="Table 2.1: Literature synthesis and design implications")
+    add_heading(doc, "2.10 Research Gap", 2)
+    add_para(doc, "There is a gap between official price publication and transparent personal planning. Many demonstrations focus only on fitting a model, omit source-level provenance, combine incompatible geographies, or report a score without a benchmark and untouched holdout. This project addresses the gap by integrating official evidence, revision governance, cost calculators, a conservative forecast experiment, and a reproducible test suite in one Nairobi-focused system.")
+    add_heading(doc, "2.10 Conceptual Framework", 2)
+    add_figure(doc, DIAGRAMS / "conceptual_framework.png", "Figure 2.1: Conceptual framework for the study")
+    add_para(doc, "Historical Nairobi prices and calendar-derived lag features form the available inputs. Leakage-safe model selection transforms them into an experimental next-cycle estimate. The estimate, official current price, and explicit calculator assumptions support user planning. The framework does not claim that historical values cause future regulatory decisions; it describes the information flow implemented by the system.")
+    doc.add_page_break()
+
+
+def chapter_three(doc: Document) -> None:
+    add_heading(doc, "CHAPTER THREE: METHODOLOGY, ANALYSIS AND DESIGN", 1)
+    add_heading(doc, "3.1 Research Design", 2)
+    add_para(doc, "The study used an applied quantitative design with iterative software development. The quantitative component validates pump-price and Annex data, reconstructs regulated prices, engineers past-only forecast features, compares forecasting methods, and measures future-point errors. The software component translates these layers into an interactive decision-support prototype. Iteration was used to correct scope, prevent leakage, preserve revisions, and align the application, notebook, tests, report, and appendices.")
+    add_heading(doc, "3.2 Data Sources and Collection", 2)
+    add_para(doc, "The primary publisher is EPRA. Historical observations were cross-checked from its statistics reports, pump-price table and official notices. Twenty-three monthly release pages and PDFs were inventoried. Because the Annexes are scanned, a reproducible OCR pipeline records the source URL, annex page, extraction status and SHA-256 text fingerprint. Thirty-three rows from 11 readable cycles were manually reviewed and reconciled. Degraded scans remain marked for manual review and are excluded rather than invented. KNBS publications provide independent context.")
+    add_table(doc, ["Dataset", "Rows", "Purpose", "Integrity control"], [
+        ["Nairobi price history", "55 cycles", "Model target and trend chart", "Unique, continuous monthly labels; official source key"],
+        ["Current Nairobi price", "1 record", "Current caps and calculators", "Town fixed to Nairobi; effective dates checked"],
+        ["2026 revision audit", "4 announcements", "Original-versus-final evidence", "Original and revised values retained"],
+        ["Price components", "Detailed rows", "Explain historical build-up", "Component totals reconcile to published totals"],
+        ["Component history", "33 rows / 11 cycles", "Multi-cycle reconstruction and scenarios", "Official PDF link; zero reconstruction error"],
+        ["EPRA source and OCR audits", "23 releases", "Reproducible acquisition and review", "URL, page, hash, extraction status"],
+        ["Live EPRA comparison", "21 rows", "Independent overlap validation", "20/20 comparable final records match"],
+        ["Source register", "Evidence groups", "Publisher and URL provenance", "HTTPS and known source identifiers"],
+    ], widths=[1.45, 0.7, 2.05, 2.6], caption="Table 3.1: Project datasets")
+    add_heading(doc, "3.3 Data Preparation and Revision Policy", 2)
+    add_para(doc, "Dates are parsed into typed values and numeric price columns are checked for positivity. The canonical Cycle field is a monthly label used for continuity and modelling, whereas Effective_Start and Effective_End preserve the real regulatory period. For April 2026, the final prevailing value begins on 16 April; for May 2026 it begins on 19 May. The revision audit retains the earlier announcements. This makes the model target operationally meaningful without erasing what was first published.")
+    add_figure(doc, CHARTS / "figure_3_1_fuel_price_trends.png", "Figure 3.1: Verified Nairobi monthly maximum-price history, January 2022-July 2026")
+    add_heading(doc, "3.4 Variables and Feature Engineering", 2)
+    add_para(doc, "The cost-reconstruction variables are Landed_Cost, Distribution_Storage, Margins, Taxes_Levies, and Stabilization_Adjustment. Distribution includes the actual Mombasa-to-Nairobi pipeline path, allowable losses, depot storage, and delivery within the stated Nairobi radius. The signed stabilization value is computed as the residual required to reconcile the official aggregates to the published cap, avoiding ambiguity when a scanned Annex drops parentheses or deficit/surplus signs.")
+    add_para(doc, "The target variable is the maximum retail price in KES per litre for one product. The feature vector for cycle t contains a monotonic cycle number, sine and cosine transformations of the calendar month, price at t-1, price at t-2, and the mean of t-1 through t-3. The first three observations are discarded after lag construction. The rolling mean is shifted before calculation, ensuring that the target cycle does not enter its own predictors.")
+    add_table(doc, ["Feature", "Definition", "Availability rationale"], [
+        ["Month_num", "Sequential monthly index", "Known at the forecast origin"],
+        ["Month_sin / Month_cos", "Cyclical encoding of calendar month", "Known calendar information"],
+        ["Lag_1", "Previous cycle's final prevailing price", "Already published"],
+        ["Lag_2", "Price two cycles earlier", "Already published"],
+        ["Rolling_3", "Mean of the preceding three prices", "Uses only completed cycles"],
+    ], widths=[1.4, 2.4, 3.0], caption="Table 3.2: Leakage-safe forecast features")
+    add_heading(doc, "3.5 Candidate Models", 2)
+    add_table(doc, ["Method", "Configuration", "Reason for inclusion"], [
+        ["Previous-cycle baseline", "Forecast equals Lag_1", "Transparent benchmark suited to unchanged regulated prices"],
+        ["Linear regression", "Ordinary least squares", "Interpretable linear relationship"],
+        ["Ridge regression", "alpha = 10", "Shrinkage for a small correlated design"],
+        ["Random forest", "20 trees; fixed random state", "Bounded nonlinear ensemble"],
+        ["Gradient boosting", "30 estimators; fixed random state", "Sequential nonlinear error correction"],
+    ], widths=[1.55, 2.0, 3.25], caption="Table 3.3: Candidate forecasting methods")
+    add_heading(doc, "3.6 Selection and Final Evaluation Protocol", 2)
+    add_para(doc, "After feature construction, the final ten observations are reserved as an untouched holdout. Candidate methods are evaluated only on the preceding selection sequence using expanding windows with a minimum training history of 24 engineered observations. This produces 18 selection forecasts. The method with the lowest selection MAE is fixed. It is then run across the ten-point holdout using only information available before each point. The holdout does not decide the winner.")
+    add_para(doc, "For actual values y_i and forecasts ŷ_i, MAE equals (1/n)Σ|y_i-ŷ_i|. RMSE equals the square root of (1/n)Σ(y_i-ŷ_i)^2. The baseline MAE is reported beside the selected-method MAE. Residual-band coverage is the proportion of holdout actuals falling between the empirical lower and upper limits generated at their origin.")
+    add_heading(doc, "3.7 Functional Requirements", 2)
+    add_bullets(doc, [
+        "Display current Nairobi caps, fuel type, effective dates, and official source link.",
+        "Calculate cost from litres and affordable litres from a budget.",
+        "Estimate journey fuel use and cost from distance, efficiency, trip type, and traffic allowance.",
+        "Produce separate experimental forecasts and evaluation metrics for all three fuels.",
+        "Display the complete imported-product-to-Nairobi price journey.",
+        "Reconstruct a selected official cycle from landed cost, distribution, margins, stabilization, and taxes.",
+        "Run user-declared cost scenarios without labelling them official forecasts.",
+        "Display history, historical price components, formulas, limitations, and evidence register.",
+        "Reject inconsistent or untraceable project data before it reaches the user interface.",
+    ])
+    add_heading(doc, "3.8 Non-functional Requirements", 2)
+    add_bullets(doc, [
+        "Usability: plain-language labels, units, warnings, and immediate calculations.",
+        "Reliability: deterministic model seeds, cached results, and automated tests.",
+        "Maintainability: separate data, calculator, modelling, and interface modules.",
+        "Transparency: evidence links, revision notes, model comparison, and limitations.",
+        "Portability: CSV storage and a requirements file for local execution.",
+    ])
+    add_heading(doc, "3.9 System Architecture", 2)
+    add_figure(doc, DIAGRAMS / "system_architecture_diagram.png", "Figure 3.2: Logical architecture of MafutaPlan")
+    add_para(doc, "The evidence layer consists of official files, source inventory, OCR audit, live-table comparison, and the local source register. Validated loaders form the data boundary. Pure calculator, reconstruction, scenario, and forecasting modules supply application services. Streamlit presents six workflows: overview, price journey, reconstruction, forecast and scenarios, calculator, and evidence. Tests exercise the service boundary independently of browser presentation.")
+    add_heading(doc, "3.10 Reconstruction, Scenario and Journey Formulae", 2)
+    add_para(doc, "For an official fuel-cycle row, Nairobi retail price R = L + D + M + T + S, where L is landed refined-product cost, D is distribution and storage from Mombasa to Nairobi, M is the regulated wholesale and dealer margin, T is taxes and levies, and S is the signed stabilization adjustment. The reconstruction error is calculated price minus official price and is zero for all 33 reviewed rows after rounding. A scenario changes only user-declared terms and is labelled what-if analysis rather than an EPRA forecast.")
+    add_figure(doc, CHARTS / "figure_3_3_component_history.png", "Figure 3.3: Average reviewed cost composition across 11 official EPRA Annex cycles")
+    add_para(doc, "Purchase cost is C = P × L, where P is KES per litre and L is litres. Affordable litres are L = B / P for budget B. Journey fuel requirement is F = [D × M / E] × (1 + A/100), where D is one-way distance, M is 1 for one way or 2 for return, E is vehicle efficiency in kilometres per litre, and A is the selected traffic or contingency allowance. Journey cost is J = F × P. These deterministic formulas are separated from the forecast so a user can plan with the official price even if the experimental forecast is uncertain.")
+    add_heading(doc, "3.11 Ethical and Data-Integrity Considerations", 2)
+    add_para(doc, "The application avoids representing a model estimate as an official announcement. It states the forecast target, empirical nature of the range, sample size, and selected method. Source URLs are displayed, revisions are preserved, and historical components are date-labelled. The system collects no personal data and performs no payments or automated commercial decisions.")
+    doc.add_page_break()
+
+
+def chapter_four(doc: Document) -> None:
+    add_heading(doc, "CHAPTER FOUR: IMPLEMENTATION, RESULTS AND TESTING", 1)
+    add_heading(doc, "4.1 Development Environment", 2)
+    add_para(doc, "The prototype was implemented in Python 3.12. Streamlit supplies the web interface, pandas handles tabular transformation, scikit-learn supplies candidate estimators and metrics, matplotlib produces report figures, and Python's unittest framework verifies data and service behaviour. Requests, Beautiful Soup, PyMuPDF and Tesseract support official-source inventory and OCR auditing. The code is organised into app.py, src/data.py, src/calculators.py, src/hybrid.py, src/modeling.py, reproducible scripts, and tests/test_project.py.")
+    add_heading(doc, "4.2 Implemented User Workflows", 2)
+    add_para(doc, "The Overview presents current caps and trend. Fuel price journey explains the eight stages from refined-product procurement to stabilization. Cost reconstruction lets a reviewer choose a real cycle and reproduce the EPRA cap from five aggregate groups. Forecast and scenarios separates the statistical estimate from a declared component what-if. Planning calculator supports purchase, budget and trip decisions. Evidence and methodology exposes history, component data, metrics, limitations and source links.")
+    add_heading(doc, "4.3 Current Official Nairobi Record", 2)
+    add_table(doc, ["Product", "Maximum price", "Effective period", "Status"], [
+        ["Super Petrol", "KES 214.03/L", "15 Jul-14 Aug 2026", "Official current cap"],
+        ["Diesel", "KES 222.86/L", "15 Jul-14 Aug 2026", "Official current cap"],
+        ["Kerosene", "KES 191.38/L", "15 Jul-14 Aug 2026", "Official current cap"],
+    ], widths=[1.4, 1.4, 2.0, 2.1], caption="Table 4.1: Current Nairobi maximum retail prices used by the application")
+    add_heading(doc, "4.4 Price-Composition Result", 2)
+    add_figure(doc, CHARTS / "figure_3_2_price_components.png", "Figure 4.1: Historical Nairobi price build-up from EPRA Annex III, 15 June-14 July 2025")
+    add_para(doc, "The chart is an explanation of how a published pump-price total was built, not a representation of the current July 2026 mix. The component file includes an explicit one-cent rounding reconciliation for Super Petrol and Kerosene because the displayed component values sum one cent below the published total when rounded individually. Preserving this reconciliation prevents silent arithmetic inconsistency.")
+    add_heading(doc, "4.5 Multi-cycle Reconstruction Result", 2)
+    add_para(doc, "The reviewed panel contains 33 rows: 11 official EPRA cycles multiplied by three fuels. Each row links to the exact EPRA PDF and stores landed product cost, Nairobi distribution and storage, wholesale and retail margins, taxes and levies, stabilization, official retail price, reconstructed price, and a quality note. All 33 calculated prices equal their official retail price after rounding; the maximum absolute reconstruction error is KES 0.00/L.")
+    add_figure(doc, CHARTS / "figure_3_3_component_history.png", "Figure 4.2: Average component composition in the reviewed EPRA panel")
+    add_heading(doc, "4.6 Model Selection Results", 2)
+    add_para(doc, "The previous-cycle baseline achieved the lowest selection MAE for each product across 18 earlier expanding-window forecasts. This result is substantively plausible because regulated prices sometimes remain unchanged, and the sample is too small to guarantee that a flexible estimator can learn policy-driven jumps. Model simplicity is therefore an empirical result rather than a predetermined conclusion.")
+    metrics = load_csv(ROOT / "appendices" / "Model_Metrics.csv")
+    add_table(doc, ["Fuel", "Winner", "Selection MAE", "Selection points"], [
+        [r["Fuel"], r["Selected_Method"], f'{float(r["Selection_MAE"]):.3f}', r["Selection_Points"]] for r in metrics
+    ], widths=[1.5, 2.5, 1.3, 1.3], caption="Table 4.2: Model-selection results")
+    add_heading(doc, "4.7 Untouched Holdout Results", 2)
+    add_table(doc, ["Fuel", "Holdout MAE", "Holdout RMSE", "Baseline MAE", "Band coverage"], [
+        [r["Fuel"], f'{float(r["Holdout_MAE"]):.3f}', f'{float(r["Holdout_RMSE"]):.3f}', f'{float(r["Baseline_MAE"]):.3f}', f'{100*float(r["Observed_Band_Containment"]):.0f}%'] for r in metrics
+    ], widths=[1.5, 1.25, 1.25, 1.25, 1.2], caption="Table 4.3: Final ten-cycle holdout performance (KES/L unless stated)")
+    add_figure(doc, CHARTS / "figure_4_1_holdout_mae.png", "Figure 4.3: Selected-method and baseline MAE on the untouched holdout")
+    add_para(doc, "Because the baseline was selected, selected-method and baseline MAE are equal. Diesel produced the largest average and squared error, indicating that its recent revisions and level changes were harder to extrapolate from lagged prices. Coverage of 80%, 80%, and 90% should not be interpreted as calibrated probability because each estimate is based on only ten holdout cases.")
+    add_heading(doc, "4.8 August 2026 Experimental Forecast", 2)
+    add_table(doc, ["Fuel", "Point forecast", "Empirical error band", "Interpretation"], [
+        [r["Fuel"], f'KES {float(r["August_2026_Forecast"]):.2f}/L', f'KES {float(r["Empirical_Lower"]):.2f}-{float(r["Empirical_Upper"]):.2f}/L', "Experimental; not an EPRA cap"] for r in metrics
+    ], widths=[1.45, 1.55, 2.0, 1.9], caption="Table 4.4: Next-cycle estimates produced from information available through July 2026")
+    add_para(doc, "The point forecast for each product equals the July price because persistence won selection. This outcome does not mean prices will remain unchanged. It means that, among the tested candidates and using the available history, the latest value was the most defensible statistical estimate. Users should replace it with the official EPRA price immediately when the August notice is issued.")
+    add_heading(doc, "4.9 Calculator Verification Examples", 2)
+    add_table(doc, ["Scenario", "Input", "Expected result"], [
+        ["Purchase Super Petrol", "20 L at KES 214.03/L", "KES 4,280.60"],
+        ["Diesel from budget", "KES 5,000 at KES 222.86/L", "22.44 L"],
+        ["Return Super Petrol trip", "30 km, 12 km/L, 10% allowance", "5.50 L; KES 1,177.17"],
+        ["Purchase Kerosene", "10 L at KES 191.38/L", "KES 1,913.80"],
+    ], widths=[1.7, 2.7, 2.2], caption="Table 4.5: Representative calculator checks")
+    add_heading(doc, "4.10 Automated Testing", 2)
+    add_para(doc, "Twenty-one automated tests cover data loading, calculators, component reconstruction, scenario arithmetic, modelling safeguards, and chart creation. The suite checks Nairobi-only scope, continuous and source-resolved history, current values, detailed and multi-cycle component reconciliation, official PDF coverage, past-only lags, finite forecasts, the August 2026 target, and separation of model-selection and holdout periods.")
+    add_table(doc, ["Test group", "Examples", "Expected outcome"], [
+        ["Data scope", "One official Nairobi row; 55 unique continuous cycles", "Pass"],
+        ["Provenance", "Known source IDs and HTTPS URLs", "Pass"],
+        ["Official values", "Historical spot checks and current July caps", "Pass"],
+        ["Components", "Every fuel reconciles to published total", "Pass"],
+        ["Component panel", "33 official rows; exact reconstruction; HTTPS EPRA links", "Pass"],
+        ["Scenarios", "Only declared cost inputs change the calculated result", "Pass"],
+        ["Calculators", "Purchase, budget, journey, and validation cases", "Pass"],
+        ["Modelling", "Past-only lags, finite outputs, next cycle, split separation", "Pass"],
+        ["Presentation", "Historical trend chart builds", "Pass"],
+    ], widths=[1.4, 3.7, 1.4], caption="Table 4.6: Automated verification summary")
+    add_heading(doc, "4.11 Discussion", 2)
+    add_para(doc, "The implementation meets the main objective by combining evidence-backed current data and a reproducible forecast experiment in one Nairobi workflow. The most important modelling result is that added complexity did not improve selection error. Reporting this negative result strengthens the study: it demonstrates comparison rather than choosing an attractive algorithm in advance. The larger diesel error also shows why user-facing point estimates must be accompanied by observed error information.")
+    add_para(doc, "The application provides value even when the forecast is conservative. Current-price calculations are deterministic, source-linked, and independent of model performance. The component explanation makes regulation more legible, and the evidence page lets a supervisor inspect sources and revision handling. This separation of official facts, exact calculations, and experimental estimates is central to the system's credibility.")
+    doc.add_page_break()
+
+
+def chapter_five(doc: Document) -> None:
+    add_heading(doc, "CHAPTER FIVE: SUMMARY, CONCLUSIONS AND RECOMMENDATIONS", 1)
+    add_heading(doc, "5.1 Summary of the Study", 2)
+    add_para(doc, "The study corrected a broad price-only prototype into a hybrid Nairobi decision-support system. It assembled 55 monthly price cycles, inventoried 23 official release PDFs, reviewed 33 component records across 11 Annex cycles, matched 20 comparable records against EPRA's live table, preserved revisions, implemented reconstruction and scenario services, compared five forecasting methods, reserved an untouched holdout, and exposed evidence and limitations in the interface.")
+    add_heading(doc, "5.2 Achievement of Objectives", 2)
+    add_table(doc, ["Objective", "Evidence of achievement"], [
+        ["Compile verified Nairobi data", "Validated history, current file, revision audit, and source register"],
+        ["Represent the complete fuel-cost chain", "Eight-stage journey and detailed EPRA Annex component register"],
+        ["Reconstruct official prices", "33 reviewed fuel-cycle records with zero rounding error"],
+        ["Implement practical planning tools", "Litres-to-cost, budget-to-litres, and journey-cost workflows"],
+        ["Compare forecasting methods", "Five fixed candidates evaluated on 18 expanding-window selection points"],
+        ["Provide honest final evaluation", "One ten-cycle untouched holdout with MAE, RMSE, baseline, and empirical coverage"],
+        ["Deliver an auditable degree prototype", "Modular application, documentation, evidence links, report, appendices, and tests"],
+    ], widths=[2.35, 4.35], caption="Table 5.1: Objective-to-deliverable mapping")
+    add_heading(doc, "5.3 Conclusions", 2)
+    add_para(doc, "Nairobi is the appropriate town for this project because it offers strong evidence continuity, clear public relevance, and a coherent single-market target. The previous-cycle baseline is the preferred method under the implemented evaluation: it won all three product comparisons and avoids pretending that a small historical series can learn future policy decisions. August 2026 forecasts should therefore be read as conservative planning references, not official prices.")
+    add_para(doc, "The broader conclusion is that data governance, regulated cost structure and communication matter as much as algorithm choice. A source-linked cap and exact reconstruction can be more useful than an opaque prediction. By distinguishing official records, deterministic reconstruction, declared scenarios and experimental forecasts, MafutaPlan addresses the supervisor's landing-to-Nairobi cost concern while remaining academically honest.")
+    add_heading(doc, "5.4 Recommendations", 2)
+    add_bullets(doc, [
+        "Use Nairobi for the supervised submission and demonstrate one complete workflow rather than expanding prematurely to multiple towns.",
+        "Refresh the current file and forecast after every official EPRA announcement; preserve any revision rather than overwriting its history.",
+        "Complete a continuous component panel of at least 36 monthly Annex cycles before fitting a production landed-cost regression.",
+        "If external economic variables are added, forecast them independently or use only values known at the pump-price forecast origin.",
+        "Evaluate prediction intervals with a larger holdout or conformal procedure before presenting probability statements.",
+        "For future deployment, add a scheduled evidence-ingestion review, cryptographic snapshots of source files, and mobile usability testing.",
+    ])
+    add_heading(doc, "5.5 Suggested Future Work", 2)
+    add_para(doc, "Future research may compare town-specific models after constructing equally traceable histories, examine regime-switching methods for subsidies and revisions, use separately forecast landed-cost and exchange-rate variables, and conduct structured usability studies with motorists and transport operators. A production deployment would also require monitoring, source-availability alerts, accessibility review, security hardening, and a clear maintenance owner.")
+    doc.add_page_break()
+
+
+def references_and_appendices(doc: Document) -> None:
+    add_heading(doc, "REFERENCES", 1)
+    refs = [
+        "Energy and Petroleum Regulatory Authority. (2022). Energy and petroleum statistics report FY 2021/2022. https://www.epra.go.ke/wp-content/uploads/2023/01/Energy-and-Petroleum-Statistics-Report.pdf",
+        "Energy and Petroleum Regulatory Authority. (2024). Energy and petroleum statistics report FY 2023/2024. https://www.epra.go.ke/sites/default/files/2024-10/EPRA%20Energy%20and%20Petroleum%20Statistics%20Report%20FY%202023-2024_2.pdf",
+        "Energy and Petroleum Regulatory Authority. (2025a). Energy and petroleum statistics report FY 2024/2025. https://www.epra.go.ke/sites/default/files/2025-09/Statistics-Report-June-2025-Web.pdf",
+        "Energy and Petroleum Regulatory Authority. (2025b). Maximum retail petroleum prices for 15 June-14 July 2025. https://www.epra.go.ke/sites/default/files/2025-06/PRESS%20RELEASE-%20JUNE%20SIGNED%202025.pdf",
+        "Energy and Petroleum Regulatory Authority. (2026a). Pump price formulae. https://www.epra.go.ke/pump-price-formulae",
+        "Energy and Petroleum Regulatory Authority. (2026b). Biannual statistics report 2025/2026. https://www.epra.go.ke/sites/default/files/2026-03/Biannual%20Statistics%20Report%202025-2026_1.pdf",
+        "Energy and Petroleum Regulatory Authority. (2026c). Addendum: Maximum retail petroleum prices in Kenya released 14 April 2026. https://www.epra.go.ke/index.php/addendum-maximum-retail-petroleum-prices-kenya-released-14th-april-2026",
+        "Energy and Petroleum Regulatory Authority. (2022). Petroleum (Pricing) Regulations, Legal Notice No. 192 of 2022. https://petroleum.go.ke/sites/default/files/The%20Petroleum%20%28Pricing%29%20Regulations.pdf",
+        "Ministry of Energy and Petroleum. (2026). Petroleum information: refined-product importation, storage and transport in Kenya. https://www.petroleum.go.ke/petroleum-information",
+        "Kenya Pipeline Company. (2025). Service delivery charter and pipeline transport services. https://qmseldoret.kpc.co.ke/downloads/SERVICE_DELIVERY_CHARTER.pdf",
         "Hyndman, R. J., & Athanasopoulos, G. (2021). Forecasting: Principles and practice (3rd ed.). OTexts. https://otexts.com/fpp3/",
-        "James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). An introduction to statistical learning: With applications in R (2nd ed.). Springer. https://www.statlearning.com/",
-        "Montgomery, D. C., Jennings, C. L., & Kulahci, M. (2024). Introduction to time series analysis and forecasting (3rd ed.). Wiley.",
-        "pandas developers. (n.d.). pandas.read_csv. Retrieved April 29, 2026, from https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html",
-        "scikit-learn developers. (n.d.). LinearRegression. Retrieved April 29, 2026, from https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LinearRegression.html",
-        "Streamlit. (n.d.). API reference. Retrieved April 29, 2026, from https://docs.streamlit.io/develop/api-reference",
-        "World Bank. (2026). Commodity markets. https://www.worldbank.org/en/research/commodity-markets",
-        "World Bank Prospects Group. (2026). World Bank commodities price data (The Pink Sheet). https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/world-bank-commodities-price-data-the-pink-sheet",
+        "Kenya National Bureau of Statistics. (2026). Kenya consumer price indices and inflation rates, June 2026. https://www.knbs.or.ke/wp-content/uploads/2026/06/Kenya-Consumer-Price-Indices-and-Inflation-Rates-June-2026.pdf",
+        "Pedregosa, F., et al. (2011). Scikit-learn: Machine learning in Python. Journal of Machine Learning Research, 12, 2825-2830.",
+        "Streamlit. (2026). Streamlit documentation. https://docs.streamlit.io/",
     ]
-    for reference in references:
-        paragraph = doc.add_paragraph()
-        run = paragraph.add_run(reference)
-        apply_run_format(run, size=12)
-        apply_paragraph_format(paragraph, alignment=WD_ALIGN_PARAGRAPH.LEFT, space_after=6)
-        paragraph.paragraph_format.left_indent = Cm(0.75)
-        paragraph.paragraph_format.first_line_indent = Cm(-0.75)
-
+    for item in refs:
+        p = doc.add_paragraph(item)
+        p.paragraph_format.left_indent = Inches(0.35)
+        p.paragraph_format.first_line_indent = Inches(-0.35)
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     doc.add_page_break()
-    add_heading(doc, "APPENDICES", level=1, center=True)
 
-    add_heading(doc, "Appendix A: Data Extraction Sheet", level=2)
-    add_dataframe_table(doc, data_extraction, "Appendix Table A.1: Data Extraction Sheet", font_size=10, column_widths=[3.5, 5.0, 3.0, 3.0, 5.0])
+    add_heading(doc, "APPENDICES", 1)
+    add_heading(doc, "Appendix A: Data Dictionary", 2)
+    dictionary = load_csv(ROOT / "appendices" / "Data_Extraction_Sheet.csv")
+    add_table(doc, ["Field", "Type", "Unit", "Meaning", "Validation"], [[r["Field"], r["Type"], r["Unit"], r["Meaning"], r["Validation"]] for r in dictionary], widths=[1.15, 0.7, 0.85, 2.25, 1.65])
+    add_heading(doc, "Appendix B: Source Register", 2)
+    sources = load_csv(DATA / "sources.csv")
+    add_table(doc, ["Source ID", "Publisher", "Title / scope", "Accessed"], [[r["Source_ID"], r["Publisher"], r["Title"], r["Accessed_On"]] for r in sources], widths=[1.35, 1.2, 3.5, 0.9])
+    add_para(doc, "The full URLs and provenance notes remain in data/sources.csv so that this compact report table stays readable.")
+    add_heading(doc, "Appendix C: Representative Verified Records", 2)
+    sample = load_csv(ROOT / "appendices" / "Sample_Dataset.csv")
+    add_table(doc, ["Cycle", "Effective start", "Super", "Diesel", "Kerosene", "Source"], [[r["Cycle"], r["Effective_Start"], r["Super_Petrol"], r["Diesel"], r["Kerosene"], r["Source_ID"]] for r in sample], widths=[1.1, 1.1, 0.85, 0.85, 0.85, 1.5])
+    add_heading(doc, "Appendix D: User Guide", 2)
+    add_bullets(doc, [
+        "Install dependencies with: python -m pip install -r requirements.txt",
+        "Start the application with: streamlit run app.py",
+        "Open http://localhost:8501 in a browser.",
+        "Use Overview for current caps and the complete price trend.",
+        "Use Fuel price journey for the imported-product-to-Nairobi cost chain.",
+        "Use Cost reconstruction to reproduce an official EPRA price.",
+        "Use Forecast & scenarios for the August estimate and declared what-if costs.",
+        "Use Planning calculator for purchase, budget and trip estimates.",
+        "Use Evidence & methodology to inspect history, component records, sources, and limitations.",
+    ], numbered=True)
+    add_heading(doc, "Appendix E: Test and Reproduction Commands", 2)
+    add_para(doc, "Run the following commands from the project root:")
+    for command in [
+        "python -m unittest discover -s tests -v",
+        "python -m compileall app.py src scripts tests",
+        "python scripts/audit_epra_pump_prices.py",
+        "python scripts/build_component_history.py",
+        "python -m pip check",
+        "streamlit run app.py",
+    ]:
+        p = doc.add_paragraph()
+        r = p.add_run(command)
+        r.font.name = "Consolas"
+        r.font.size = Pt(9)
+        set_cell_shading if False else None
+    add_heading(doc, "Appendix F: Project Schedule", 2)
+    schedule = load_csv(ROOT / "appendices" / "Project_Schedule.csv")
+    headers = list(schedule[0].keys())
+    add_table(doc, headers, [[r[h] for h in headers] for r in schedule])
+    add_heading(doc, "Appendix G: Project Budget", 2)
+    budget = load_csv(ROOT / "appendices" / "Project_Budget.csv")
+    headers = list(budget[0].keys())
+    add_table(doc, headers, [[r[h] for h in headers] for r in budget])
+    add_heading(doc, "Appendix H: Repository Structure", 2)
+    add_para(doc, "The authoritative implementation is stored in app.py and src/. The appendices contain portable CSV extracts rather than duplicated modelling logic. DATA_PROVENANCE.md defines the evidence and refresh protocol; notebooks/FuelPriceAnalysis.ipynb provides reproducible exploratory analysis; outputs/ contains report figures and presentation artifacts; tests/test_project.py contains the automated verification suite.")
 
-    add_heading(doc, "Appendix B: Sample Dataset", level=2)
-    add_dataframe_table(doc, sample_dataset.head(10), "Appendix Table B.1: Sample Dataset", font_size=10, column_widths=[3.0, 2.5, 2.5, 3.0, 2.5, 2.5])
 
-    add_heading(doc, "Appendix C: Source Code", level=2)
-    add_paragraph(doc, "The full application source code is provided in the repository file `app.py` and duplicated in `appendices/App_Source_Code.py`. A short excerpt of the main workflow is shown below.")
-    add_code_block(
-        doc,
-        """
-def main() -> None:
-    data = load_data()
-    selected_fuel = st.selectbox("Select fuel type to predict:", list(FUEL_OPTIONS.keys()))
-    fuel_column = FUEL_OPTIONS[selected_fuel]
-    model_data = create_lagged_data(data, fuel_column)
-    model, metrics = train_model(model_data, fuel_column)
-    future_input = build_future_input(data, fuel_column, usd_kes, crude_oil)
-    prediction = float(model.predict(future_input)[0])
-        """,
-    )
-
-    add_heading(doc, "Appendix D: Testing Screenshots", level=2)
-    add_paragraph(doc, "The testing screenshots used in Chapter 4 are stored in the `outputs/screenshots/` folder of the repository. These include the application input form, prediction outputs for each fuel type, the model evaluation section, the trend chart, and dataset views.")
-
-    add_heading(doc, "Appendix E: Project Schedule", level=2)
-    add_dataframe_table(doc, project_schedule, "Appendix Table E.1: Project Schedule", font_size=10, column_widths=[9.5, 4.0, 4.0])
-
-    add_heading(doc, "Appendix F: Budget", level=2)
-    add_dataframe_table(doc, project_budget, "Appendix Table F.1: Project Budget", font_size=10, column_widths=[10.0, 6.0])
-
-    add_heading(doc, "Appendix G: GitHub Repository Link", level=2)
-    add_paragraph(doc, "Repository URL: https://github.com/ryanair000/fuel-price-predictor", alignment=WD_ALIGN_PARAGRAPH.LEFT)
-
-    add_heading(doc, "Appendix H: Jupyter Notebook Reference", level=2)
-    add_paragraph(doc, "Notebook file: notebooks/FuelPriceAnalysis.ipynb", alignment=WD_ALIGN_PARAGRAPH.LEFT)
-
-    doc.save(REPORT_PATH)
-    print(f"Saved report draft to {REPORT_PATH}")
+def build_report() -> Path:
+    generate_assets()
+    DOCS.mkdir(parents=True, exist_ok=True)
+    doc = Document()
+    configure_document(doc)
+    front_matter(doc)
+    chapter_one(doc)
+    chapter_two(doc)
+    chapter_three(doc)
+    chapter_four(doc)
+    chapter_five(doc)
+    references_and_appendices(doc)
+    core = doc.core_properties
+    core.title = "Design and Implementation of a Hybrid Cost-Based Model for Forecasting Regulated Fuel Prices in Nairobi, Kenya"
+    core.subject = "Final-year degree project report"
+    core.author = "Ryan Alfred Nyambati"
+    core.keywords = "Nairobi, EPRA, landed cost, price reconstruction, forecasting, Streamlit"
+    doc.save(REPORT)
+    return REPORT
 
 
 if __name__ == "__main__":
-    main()
+    path = build_report()
+    print(path)

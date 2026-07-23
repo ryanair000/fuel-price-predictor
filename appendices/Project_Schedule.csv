@@ -1,6 +1,7 @@
 Activity,Start Period,End Period
 Problem definition and proposal alignment,September 2025,October 2025
-Data collection and verification,November 2025,January 2026
-Data analysis and model development,February 2026,March 2026
-Streamlit system implementation,March 2026,April 2026
-"Testing, documentation, and final report writing",April 2026,May 2026
+Initial data collection and prototype,November 2025,April 2026
+Official evidence and scope audit,May 2026,June 2026
+Nairobi data verification and revision handling,June 2026,July 2026
+Leakage-safe model redesign and application implementation,July 2026,July 2026
+Testing documentation and final report,July 2026,July 2026
