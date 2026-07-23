@@ -1,9 +1,4 @@
-"""Cost-based reconstruction and transparent scenario analysis.
-
-The functions in this module do not pretend that user-entered scenarios are
-official EPRA forecasts.  They implement the regulated arithmetic explicitly so
-each estimate can be explained component by component.
-"""
+"""Fuel-price reconstruction and scenario calculations."""
 
 from __future__ import annotations
 
@@ -29,16 +24,19 @@ class ScenarioResult:
 
 
 def reconstruct_price(row: pd.Series | dict[str, float]) -> float:
-    """Return the pump-price sum of EPRA's five published aggregate groups."""
+    """Sum the five aggregate EPRA price components."""
     return round(sum(float(row[column]) for column in AGGREGATE_COMPONENTS), 2)
 
 
 def component_shares(row: pd.Series | dict[str, float]) -> dict[str, float]:
-    """Return component shares of the reconstructed price as percentages."""
+    """Calculate each component's percentage share of the reconstructed price."""
     total = reconstruct_price(row)
     if total <= 0:
         raise ValueError("Reconstructed price must be positive")
-    return {column: float(row[column]) / total * 100 for column in AGGREGATE_COMPONENTS}
+    return {
+        column: float(row[column]) / total * 100
+        for column in AGGREGATE_COMPONENTS
+    }
 
 
 def scenario_estimate(
@@ -50,16 +48,19 @@ def scenario_estimate(
     tax_change: float = 0.0,
     stabilization_adjustment: float | None = None,
 ) -> ScenarioResult:
-    """Apply transparent what-if changes to one reviewed EPRA component row.
-
-    Percentage changes are multiplicative. ``tax_change`` is an absolute
-    KES/litre policy change, while stabilization can be explicitly overridden.
-    """
-    if landed_change_pct < -100 or distribution_change_pct < -100 or margin_change_pct < -100:
+    """Apply user-supplied changes to one reviewed component record."""
+    percentage_changes = (
+        landed_change_pct,
+        distribution_change_pct,
+        margin_change_pct,
+    )
+    if any(change < -100 for change in percentage_changes):
         raise ValueError("Percentage reductions cannot be below -100%")
+
     components = {
         "Landed_Cost": float(row["Landed_Cost"]) * (1 + landed_change_pct / 100),
-        "Distribution_Storage": float(row["Distribution_Storage"]) * (1 + distribution_change_pct / 100),
+        "Distribution_Storage": float(row["Distribution_Storage"])
+        * (1 + distribution_change_pct / 100),
         "Margins": float(row["Margins"]) * (1 + margin_change_pct / 100),
         "Stabilization_Adjustment": (
             float(row["Stabilization_Adjustment"])
@@ -68,16 +69,30 @@ def scenario_estimate(
         ),
         "Taxes_Levies": float(row["Taxes_Levies"]) + float(tax_change),
     }
-    if any(value < 0 for name, value in components.items() if name != "Stabilization_Adjustment"):
+
+    non_stabilization = (
+        value
+        for name, value in components.items()
+        if name != "Stabilization_Adjustment"
+    )
+    if any(value < 0 for value in non_stabilization):
         raise ValueError("Scenario produces a negative cost component")
-    base = reconstruct_price(row)
-    estimate = round(sum(components.values()), 2)
-    return ScenarioResult(base, estimate, round(estimate - base, 2), components)
+
+    base_price = reconstruct_price(row)
+    estimated_price = round(sum(components.values()), 2)
+    return ScenarioResult(
+        base_price=base_price,
+        estimated_price=estimated_price,
+        change=round(estimated_price - base_price, 2),
+        components=components,
+    )
 
 
 def reconstruction_audit(frame: pd.DataFrame) -> pd.DataFrame:
-    """Recalculate every row and expose differences from official retail price."""
+    """Recalculate all rows and compare them with the official retail price."""
     result = frame.copy()
     result["Calculated_Price"] = result.apply(reconstruct_price, axis=1)
-    result["Calculated_Error"] = (result["Calculated_Price"] - result["Retail_Price"]).round(2)
+    result["Calculated_Error"] = (
+        result["Calculated_Price"] - result["Retail_Price"]
+    ).round(2)
     return result
