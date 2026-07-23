@@ -14,26 +14,24 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Build clean submission archive
-        run: |
-          mkdir -p export/Ryan_Mafutaplan_Final_Project
-          rsync -a \
-            --exclude '.git' \
-            --exclude 'export' \
-            --exclude '.github/workflows/export-final-submission.yml' \
-            --exclude '__pycache__' \
-            --exclude '.pytest_cache' \
-            --exclude '.mypy_cache' \
-            --exclude '.ruff_cache' \
-            --exclude '.ipynb_checkpoints' \
-            ./ export/Ryan_Mafutaplan_Final_Project/
-          cd export
-          zip -r Ryan_Mafutaplan_Final_Project.zip Ryan_Mafutaplan_Final_Project
-
       - name: Upload project archive
         uses: actions/upload-artifact@v4
         with:
           name: project-export
-          path: export/Ryan_Mafutaplan_Final_Project.zip
+          path: |
+            app.py
+            README.md
+            DATA_PROVENANCE.md
+            requirements.txt
+            requirements-dev.txt
+            appendices
+            data
+            docs
+            notebooks
+            outputs
+            scripts
+            src
+            tests
           retention-days: 1
           if-no-files-found: error
+          include-hidden-files: false
