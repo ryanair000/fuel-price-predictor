@@ -19,6 +19,7 @@ jobs:
           mkdir -p export/Ryan_Mafutaplan_Final_Project
           rsync -a \
             --exclude '.git' \
+            --exclude 'export' \
             --exclude '.github/workflows/export-final-submission.yml' \
             --exclude '__pycache__' \
             --exclude '.pytest_cache' \
