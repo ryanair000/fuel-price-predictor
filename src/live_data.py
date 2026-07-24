@@ -7,7 +7,7 @@ import re
 import pandas as pd
 import requests
 
-EPRA_PUMP_PRICES_URL = "https://www.epra.go.ke/pump-prices"
+EPRA_PUMP_PRICES_URL = "https://epra.go.ke/pump-prices"
 
 
 def fetch_live_nairobi_prices(timeout: int = 30) -> pd.DataFrame:
