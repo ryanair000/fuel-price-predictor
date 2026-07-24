@@ -1,235 +1,288 @@
 import math
+import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+from streamlit.testing.v1 import AppTest
 
+import app
 from src.calculators import cost_for_litres, litres_for_budget, trip_estimate
 from src.data import (
-    FUEL_COLUMNS,
-    get_price,
     load_component_history,
-    load_components,
-    load_history,
     load_official_prices,
+    load_prediction_dataset,
     load_sources,
 )
-from src.hybrid import reconstruct_price, reconstruction_audit, scenario_estimate
 from src.modeling import (
-    FEATURE_COLUMNS,
-    build_trend_chart,
-    create_lagged_data,
-    forecast_fuel,
+    JULY_2026_CYCLE,
+    MODEL_FEATURES,
+    DataAvailabilityError,
+    coefficient_table,
+    evaluate_latest_cycle,
+    fit_linear_regression,
+    predict_for_cycle,
+    predict_july_2026,
 )
+from src.pricing import reconstruct_price, reconstruction_audit, scenario_estimate
 
 
-class DataTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.history = load_history()
-        cls.official = load_official_prices()
-        cls.sources = load_sources()
+class CsvValidationMixin:
+    def write_csv(self, frame: pd.DataFrame) -> Path:
+        temporary = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+        temporary.close()
+        path = Path(temporary.name)
+        frame.to_csv(path, index=False)
+        self.addCleanup(path.unlink, missing_ok=True)
+        return path
 
-    def test_required_project_files_exist(self):
-        required_files = [
-            "data/nairobi_price_history.csv",
+
+class RepositoryTests(unittest.TestCase):
+    def test_required_files_exist(self):
+        required = [
+            "app.py",
+            "data/component_prediction_dataset.csv",
             "data/current_nairobi_price.csv",
-            "data/price_components.csv",
             "data/nairobi_component_history.csv",
-            "data/sources.csv",
+            "data/nairobi_price_history.csv",
             "data/price_revisions_2026.csv",
+            "data/sources.csv",
+            "docs/Ryan_Final_Project_Report.docx",
+            "notebooks/FuelPriceAnalysis.ipynb",
         ]
-        for name in required_files:
-            self.assertTrue(Path(name).exists(), name)
+        for relative_path in required:
+            self.assertTrue(Path(relative_path).is_file(), relative_path)
 
-    def test_scope_is_nairobi_only(self):
-        self.assertEqual(self.official["Town"].unique().tolist(), ["Nairobi"])
-        self.assertNotIn("Town", self.history.columns)
 
-    def test_history_is_continuous_unique_and_time_ordered(self):
-        expected = pd.date_range("2022-01-01", "2026-07-01", freq="MS")
-        self.assertEqual(self.history["Cycle"].tolist(), list(expected))
-        self.assertFalse(self.history["Cycle"].duplicated().any())
-        self.assertTrue(self.history["Cycle"].is_monotonic_increasing)
-        self.assertEqual(self.history["Month_num"].tolist(), list(range(1, 56)))
+class SourceValidationTests(CsvValidationMixin, unittest.TestCase):
+    def test_source_ids_are_unique_and_links_are_https(self):
+        sources = load_sources()
+        self.assertFalse(sources["Source_ID"].duplicated().any())
+        self.assertTrue(sources["URL"].str.startswith("https://").all())
 
-    def test_effective_periods_are_valid(self):
+    def test_missing_required_source_value_is_rejected(self):
+        sources = pd.read_csv("data/sources.csv")
+        sources.loc[0, "Title"] = np.nan
+        with self.assertRaisesRegex(ValueError, "blank values"):
+            load_sources(self.write_csv(sources))
+
+    def test_duplicate_source_id_is_rejected(self):
+        sources = pd.read_csv("data/sources.csv")
+        sources.loc[1, "Source_ID"] = sources.loc[0, "Source_ID"]
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            load_sources(self.write_csv(sources))
+
+    def test_non_https_source_is_rejected(self):
+        sources = pd.read_csv("data/sources.csv")
+        sources.loc[0, "URL"] = "http://example.com"
+        with self.assertRaisesRegex(ValueError, "HTTPS"):
+            load_sources(self.write_csv(sources))
+
+
+class ComponentDataTests(CsvValidationMixin, unittest.TestCase):
+    def setUp(self):
+        self.components = load_component_history()
+
+    def test_schema_dates_fuels_sources_and_reconstruction(self):
+        self.assertEqual(len(self.components), 33)
+        self.assertEqual(self.components["Effective_From"].nunique(), 11)
+        self.assertEqual(
+            set(self.components["Fuel"]),
+            {"Super Petrol", "Diesel", "Kerosene"},
+        )
         self.assertTrue(
-            (self.history["Effective_To"] >= self.history["Effective_From"]).all()
+            (self.components["Effective_To"] >= self.components["Effective_From"]).all()
         )
-
-    def test_every_history_row_has_registered_source(self):
-        self.assertTrue(
-            set(self.history["Source_ID"]).issubset(set(self.sources["Source_ID"]))
-        )
-        self.assertTrue(self.sources["URL"].str.startswith("https://").all())
-
-    def test_official_spot_checks(self):
-        jul_2022 = self.history.loc[
-            self.history["Cycle"].eq(pd.Timestamp("2022-07-01"))
-        ].iloc[0]
-        apr_2026 = self.history.loc[
-            self.history["Cycle"].eq(pd.Timestamp("2026-04-01"))
-        ].iloc[0]
-        may_2026 = self.history.loc[
-            self.history["Cycle"].eq(pd.Timestamp("2026-05-01"))
-        ].iloc[0]
-        self.assertEqual(
-            (jul_2022.Super_Petrol, jul_2022.Diesel, jul_2022.Kerosene),
-            (159.12, 140.0, 127.94),
-        )
-        self.assertEqual(
-            (apr_2026.Super_Petrol, apr_2026.Diesel, apr_2026.Kerosene),
-            (197.60, 196.63, 152.78),
-        )
-        self.assertEqual(
-            (may_2026.Super_Petrol, may_2026.Diesel, may_2026.Kerosene),
-            (214.25, 232.86, 191.38),
-        )
-
-    def test_current_cycle_and_prices_are_exact(self):
-        row = self.official.iloc[0]
-        self.assertEqual(row["Effective_From"], pd.Timestamp("2026-07-15"))
-        self.assertEqual(row["Effective_To"], pd.Timestamp("2026-08-14"))
-        self.assertEqual(get_price(self.official, "Super Petrol"), 214.03)
-        self.assertEqual(get_price(self.official, "Diesel"), 222.86)
-        self.assertEqual(get_price(self.official, "Kerosene"), 191.38)
-
-    def test_component_detail_reconciles_to_epra_totals(self):
-        totals = (
-            load_components()
-            .groupby("Fuel")["KES_Per_Litre"]
-            .sum()
-            .round(2)
-            .to_dict()
-        )
-        self.assertEqual(
-            totals,
-            {"Diesel": 162.91, "Kerosene": 146.93, "Super Petrol": 177.32},
-        )
-
-    def test_component_history_is_real_linked_and_reconciled(self):
-        frame = load_component_history()
-        self.assertEqual(len(frame), 33)
-        self.assertEqual(frame["Effective_From"].nunique(), 11)
-        self.assertEqual(
-            frame.groupby("Fuel").size().to_dict(),
-            {"Diesel": 11, "Kerosene": 11, "Super Petrol": 11},
-        )
-        self.assertTrue(frame["PDF_URL"].str.startswith("https://www.epra.go.ke/").all())
+        self.assertTrue(self.components["PDF_URL"].str.startswith("https://").all())
         self.assertLessEqual(
-            reconstruction_audit(frame)["Calculated_Error"].abs().max(),
+            reconstruction_audit(self.components)["Calculated_Error"].abs().max(),
             0.02,
         )
 
-    def test_known_annex_row_reconstructs_exact_price(self):
-        frame = load_component_history()
-        row = frame.loc[
-            frame["Effective_From"].eq(pd.Timestamp("2025-06-15"))
-            & frame["Fuel"].eq("Diesel")
-        ].iloc[0]
-        self.assertEqual(reconstruct_price(row), 162.91)
-
-    def test_cost_scenario_changes_only_declared_inputs(self):
-        frame = load_component_history()
-        row = frame.loc[
-            frame["Effective_From"].eq(pd.Timestamp("2025-06-15"))
-            & frame["Fuel"].eq("Super Petrol")
-        ].iloc[0]
-        scenario = scenario_estimate(row, landed_change_pct=10, tax_change=2)
-        self.assertAlmostEqual(scenario.change, round(row.Landed_Cost * 0.10 + 2, 2))
-
-    def test_lags_use_only_past_values(self):
-        lagged = create_lagged_data(self.history, "Super_Petrol")
-        first = lagged.iloc[0]
-        self.assertEqual(first["Cycle"], pd.Timestamp("2022-04-01"))
-        self.assertEqual(first["Lag_1"], self.history.iloc[2]["Super_Petrol"])
-        self.assertEqual(first["Lag_2"], self.history.iloc[1]["Super_Petrol"])
-        self.assertAlmostEqual(
-            first["Rolling_3"],
-            self.history.iloc[:3]["Super_Petrol"].mean(),
+    def test_component_arithmetic_matches_stored_reconstruction(self):
+        calculated = self.components.apply(reconstruct_price, axis=1)
+        np.testing.assert_allclose(
+            calculated,
+            self.components["Reconstructed_Price"],
+            atol=0.01,
         )
 
+    def test_missing_component_value_is_rejected(self):
+        raw = pd.read_csv("data/nairobi_component_history.csv")
+        raw.loc[0, "Landed_Cost"] = np.nan
+        with self.assertRaisesRegex(ValueError, "blank values"):
+            load_component_history(self.write_csv(raw))
 
-class CalculatorTests(unittest.TestCase):
-    def test_litre_cost(self):
-        self.assertAlmostEqual(cost_for_litres(20, 214.03), 4280.60)
+    def test_duplicate_component_record_is_rejected(self):
+        raw = pd.read_csv("data/nairobi_component_history.csv")
+        raw = pd.concat([raw, raw.iloc[[0]]], ignore_index=True)
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            load_component_history(self.write_csv(raw))
 
-    def test_budget_litres(self):
-        self.assertAlmostEqual(litres_for_budget(4280.60, 214.03), 20.0)
+    def test_invalid_component_date_is_rejected(self):
+        raw = pd.read_csv("data/nairobi_component_history.csv")
+        raw.loc[0, "Effective_To"] = "2020-01-01"
+        with self.assertRaisesRegex(ValueError, "ends before"):
+            load_component_history(self.write_csv(raw))
 
-    def test_trip_calculation_includes_traffic_allowance(self):
-        result = trip_estimate(120, 12, 200, 10)
+    def test_unknown_component_source_id_is_rejected(self):
+        raw = pd.read_csv("data/nairobi_component_history.csv")
+        raw.loc[0, "Source_ID"] = "NOT_REGISTERED"
+        with self.assertRaisesRegex(ValueError, "unknown Source_ID"):
+            load_component_history(self.write_csv(raw))
+
+
+class PredictionDatasetTests(CsvValidationMixin, unittest.TestCase):
+    def setUp(self):
+        self.data = load_prediction_dataset()
+
+    def test_schema_and_cycle_ordering(self):
+        self.assertEqual(len(self.data), 33)
+        self.assertTrue((self.data["Target_Cycle"] > self.data["Input_Cycle"]).all())
         self.assertEqual(
-            result,
+            self.data.groupby("Target_Cycle")["Fuel"].nunique().unique().tolist(),
+            [3],
+        )
+
+    def test_invalid_fuel_is_rejected(self):
+        raw = pd.read_csv("data/component_prediction_dataset.csv")
+        raw.loc[0, "Fuel"] = "Aviation Fuel"
+        with self.assertRaisesRegex(ValueError, "unknown fuel"):
+            load_prediction_dataset(self.write_csv(raw))
+
+    def test_duplicate_prediction_record_is_rejected(self):
+        raw = pd.read_csv("data/component_prediction_dataset.csv")
+        raw = pd.concat([raw, raw.iloc[[0]]], ignore_index=True)
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            load_prediction_dataset(self.write_csv(raw))
+
+    def test_target_before_input_is_rejected(self):
+        raw = pd.read_csv("data/component_prediction_dataset.csv")
+        raw.loc[0, "Target_Cycle"] = raw.loc[0, "Input_Cycle"]
+        with self.assertRaisesRegex(ValueError, "must follow"):
+            load_prediction_dataset(self.write_csv(raw))
+
+
+class LinearRegressionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data = load_prediction_dataset()
+        cls.evaluation = evaluate_latest_cycle(cls.data)
+
+    def test_chronological_training_and_july_exclusion(self):
+        self.assertEqual(self.evaluation.training_records, 30)
+        self.assertEqual(self.evaluation.test_records, 3)
+        self.assertEqual(self.evaluation.training_start, pd.Timestamp("2024-09-01"))
+        self.assertEqual(self.evaluation.training_end, pd.Timestamp("2026-03-01"))
+        self.assertEqual(self.evaluation.test_cycle, pd.Timestamp("2026-04-01"))
+        self.assertLess(self.evaluation.training_end, JULY_2026_CYCLE)
+
+    def test_linear_regression_has_finite_coefficients(self):
+        model = fit_linear_regression(
+            self.data.loc[self.data["Target_Cycle"] < self.evaluation.test_cycle]
+        )
+        table = coefficient_table(model)
+        self.assertEqual(
+            table["Term"].tolist(),
+            ["Intercept", *MODEL_FEATURES],
+        )
+        self.assertTrue(np.isfinite(table["Coefficient"]).all())
+
+    def test_predictions_are_finite_for_all_three_test_fuels(self):
+        results = self.evaluation.results
+        self.assertEqual(set(results["Fuel"]), {"Super Petrol", "Diesel", "Kerosene"})
+        self.assertTrue(np.isfinite(results["Predicted_Retail_Price"]).all())
+        self.assertTrue(np.isfinite(results["Absolute_Error"]).all())
+        self.assertTrue(np.isfinite(results["Percentage_Error"]).all())
+
+    def test_prediction_generation_for_a_complete_cycle(self):
+        training = self.data.loc[
+            self.data["Target_Cycle"] < self.evaluation.test_cycle
+        ]
+        model = fit_linear_regression(training)
+        predicted = predict_for_cycle(model, self.data, self.evaluation.test_cycle)
+        self.assertEqual(len(predicted), 3)
+        self.assertTrue(np.isfinite(predicted["Predicted_Retail_Price"]).all())
+
+    def test_mae_and_rmse_match_direct_calculation(self):
+        errors = (
+            self.evaluation.results["Predicted_Retail_Price"]
+            - self.evaluation.results["Target_Retail_Price"]
+        )
+        self.assertAlmostEqual(self.evaluation.mae, float(errors.abs().mean()))
+        self.assertAlmostEqual(
+            self.evaluation.rmse,
+            float(np.sqrt(np.mean(np.square(errors)))),
+        )
+
+    def test_july_prediction_is_blocked_without_june_components(self):
+        model = fit_linear_regression(self.data)
+        with self.assertRaisesRegex(DataAvailabilityError, "unavailable"):
+            predict_july_2026(model, self.data)
+
+
+class OfficialJulyTests(unittest.TestCase):
+    def test_official_july_prices_are_evaluation_values(self):
+        official = load_official_prices().iloc[0]
+        self.assertEqual(float(official["Super_Petrol"]), 214.03)
+        self.assertEqual(float(official["Diesel"]), 222.86)
+        self.assertEqual(float(official["Kerosene"]), 191.38)
+
+
+class PricingAndCalculatorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.row = load_component_history().iloc[0]
+
+    def test_scenario_changes_only_declared_inputs(self):
+        result = scenario_estimate(self.row, landed_change_pct=10, tax_change=2)
+        expected = round(float(self.row["Landed_Cost"]) * 0.10 + 2, 2)
+        self.assertAlmostEqual(result.change, expected)
+
+    def test_purchase_budget_and_journey_formulas(self):
+        self.assertAlmostEqual(cost_for_litres(20, 214.03), 4280.60)
+        self.assertAlmostEqual(litres_for_budget(4280.60, 214.03), 20.0)
+        self.assertEqual(
+            trip_estimate(120, 12, 200, 10),
             {"base_litres": 10.0, "litres": 11.0, "cost": 2200.0},
         )
 
-    def test_invalid_values_are_rejected(self):
+    def test_invalid_calculator_inputs_are_rejected(self):
         invalid_calls = [
             (cost_for_litres, (0, 200)),
             (litres_for_budget, (-1, 200)),
             (trip_estimate, (100, 0, 200)),
+            (trip_estimate, (100, 10, 200, 101)),
         ]
-        for function, args in invalid_calls:
+        for function, arguments in invalid_calls:
             with self.assertRaises(ValueError):
-                function(*args)
+                function(*arguments)
 
 
-class ModelTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.history = load_history()
-        cls.results = {
-            column: forecast_fuel(cls.history, column)
-            for column in FUEL_COLUMNS.values()
-        }
+class StreamlitLoadingTests(unittest.TestCase):
+    def test_streamlit_data_loading(self):
+        app.load_project_data.clear()
+        official, components, prediction_data, sources = app.load_project_data()
+        self.assertEqual(len(official), 1)
+        self.assertEqual(len(components), 33)
+        self.assertEqual(len(prediction_data), 33)
+        self.assertGreaterEqual(len(sources), 22)
 
-    def test_all_fuels_return_finite_deterministic_forecasts(self):
-        for column, result in self.results.items():
-            values = [
-                result.prediction,
-                result.lower,
-                result.upper,
-                result.mae,
-                result.rmse,
-                result.baseline_mae,
-            ]
-            for value in values:
-                self.assertTrue(math.isfinite(value), (column, value))
-            self.assertLessEqual(result.lower, result.prediction)
-            self.assertGreaterEqual(result.upper, result.prediction)
-            self.assertEqual(result.validation_points, 10)
-            self.assertGreaterEqual(result.selection_points, 6)
-
-    def test_forecast_targets_next_monthly_cycle(self):
-        for result in self.results.values():
-            self.assertEqual(result.next_date, pd.Timestamp("2026-08-01"))
-
-    def test_holdout_is_separate_from_selection(self):
-        result = self.results["Super_Petrol"]
-        lagged_rows = len(create_lagged_data(self.history, "Super_Petrol"))
-        self.assertEqual(
-            result.selection_points + result.validation_points + 24,
-            lagged_rows,
-        )
-
-    def test_chart_connects_last_observation_to_forecast(self):
-        result = self.results["Diesel"]
-        chart = build_trend_chart(self.history, "Diesel", result)
-        self.assertEqual(chart.loc[pd.Timestamp("2026-07-01"), "Forecast"], 222.86)
-        self.assertEqual(
-            chart.loc[pd.Timestamp("2026-08-01"), "Forecast"],
-            result.prediction,
-        )
-
-    def test_model_features_exclude_same_cycle_external_values(self):
-        self.assertNotIn("USD_KES", FEATURE_COLUMNS)
-        self.assertNotIn("Crude_Oil", FEATURE_COLUMNS)
-        self.assertEqual(
-            set(FEATURE_COLUMNS),
-            {"Month_num", "Month_sin", "Month_cos", "Lag_1", "Lag_2", "Rolling_3"},
-        )
+    def test_every_streamlit_page_runs_without_exception(self):
+        pages = [
+            "Home",
+            "July 2026 Prediction",
+            "Factors Affecting Fuel Price",
+            "Price Reconstruction",
+            "Fuel Calculator",
+            "Data and Methodology",
+        ]
+        application = AppTest.from_file("app.py", default_timeout=30).run()
+        for page in pages:
+            with self.subTest(page=page):
+                application.sidebar.radio[0].set_value(page).run()
+                self.assertEqual(list(application.exception), [])
 
 
 if __name__ == "__main__":

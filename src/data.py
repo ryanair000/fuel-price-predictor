@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
+import numpy as np
 import pandas as pd
 
 from .paths import (
@@ -10,6 +11,7 @@ from .paths import (
     COMPONENTS_PATH,
     HISTORY_PATH,
     OFFICIAL_PRICES_PATH,
+    PREDICTION_DATASET_PATH,
     SOURCES_PATH,
 )
 
@@ -165,7 +167,10 @@ def load_components(
     )
 
 
-def load_component_history(path: PathLike = COMPONENT_HISTORY_PATH) -> pd.DataFrame:
+def load_component_history(
+    path: PathLike = COMPONENT_HISTORY_PATH,
+    sources_path: PathLike = SOURCES_PATH,
+) -> pd.DataFrame:
     frame = pd.read_csv(path)
     columns = [
         "Effective_From",
@@ -175,6 +180,8 @@ def load_component_history(path: PathLike = COMPONENT_HISTORY_PATH) -> pd.DataFr
         "Retail_Price",
         "Reconstructed_Price",
         "Reconstruction_Error",
+        "Source_ID",
+        "Source_Title",
         "PDF_URL",
         "Verification_Status",
         "Quality_Notes",
@@ -203,6 +210,8 @@ def load_component_history(path: PathLike = COMPONENT_HISTORY_PATH) -> pd.DataFr
 
     if not frame["PDF_URL"].astype(str).str.startswith("https://").all():
         raise ValueError("Every component-history row must link to HTTPS evidence")
+    if not set(frame["Source_ID"]).issubset(_registered_source_ids(sources_path)):
+        raise ValueError("Component history references an unknown Source_ID")
 
     calculated = frame[COMPONENT_COLUMNS].sum(axis=1).round(2)
     if (calculated - frame["Reconstructed_Price"]).abs().max() > 0.01:
@@ -213,6 +222,41 @@ def load_component_history(path: PathLike = COMPONENT_HISTORY_PATH) -> pd.DataFr
         raise ValueError("Recorded reconstruction error exceeds the allowed tolerance")
 
     return frame.sort_values(["Effective_From", "Fuel"]).reset_index(drop=True)
+
+
+def load_prediction_dataset(
+    path: PathLike = PREDICTION_DATASET_PATH,
+    sources_path: PathLike = SOURCES_PATH,
+) -> pd.DataFrame:
+    frame = pd.read_csv(path)
+    columns = [
+        "Input_Cycle",
+        "Target_Cycle",
+        "Fuel",
+        *COMPONENT_COLUMNS,
+        "Target_Retail_Price",
+        "Source_ID",
+        "Verification_Status",
+    ]
+    _require(frame, columns, "Component prediction dataset")
+    _parse_dates(frame, ("Input_Cycle", "Target_Cycle"))
+
+    numeric = [*COMPONENT_COLUMNS, "Target_Retail_Price"]
+    frame[numeric] = frame[numeric].apply(pd.to_numeric, errors="raise")
+    if frame[["Input_Cycle", "Fuel"]].duplicated().any():
+        raise ValueError("Component prediction dataset contains duplicate records")
+    if not set(frame["Fuel"]).issubset(FUEL_COLUMNS):
+        raise ValueError("Component prediction dataset contains an unknown fuel")
+    if (frame["Target_Cycle"] <= frame["Input_Cycle"]).any():
+        raise ValueError("Every target cycle must follow its input cycle")
+    if not np.isfinite(frame[numeric].to_numpy(dtype=float)).all():
+        raise ValueError("Component prediction dataset contains infinite values")
+    if not set(frame["Source_ID"]).issubset(_registered_source_ids(sources_path)):
+        raise ValueError("Component prediction dataset references an unknown Source_ID")
+    if frame["Verification_Status"].str.strip().eq("").any():
+        raise ValueError("Every prediction record needs a verification status")
+
+    return frame.sort_values(["Target_Cycle", "Fuel"]).reset_index(drop=True)
 
 
 def get_price(frame: pd.DataFrame, fuel: str) -> float:

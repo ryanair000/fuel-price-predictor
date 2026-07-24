@@ -20,6 +20,19 @@ INVENTORY = ROOT / "data" / "epra_component_source_inventory.csv"
 OUTPUT = ROOT / "data" / "nairobi_component_history.csv"
 
 FUELS = ("Super Petrol", "Diesel", "Kerosene")
+SOURCE_IDS = {
+    "2024-08-15": "EPRA_COMPONENT_2024_08",
+    "2024-10-15": "EPRA_COMPONENT_2024_10",
+    "2024-11-15": "EPRA_COMPONENT_2024_11",
+    "2024-12-15": "EPRA_COMPONENT_2024_12",
+    "2025-02-15": "EPRA_COMPONENT_2025_02",
+    "2025-06-15": "EPRA_JUNE2025_COSTS",
+    "2025-07-15": "EPRA_COMPONENT_2025_07",
+    "2025-08-15": "EPRA_COMPONENT_2025_08",
+    "2026-01-15": "EPRA_COMPONENT_2026_01",
+    "2026-02-15": "EPRA_COMPONENT_2026_02",
+    "2026-03-15": "EPRA_COMPONENT_2026_03",
+}
 
 # effective_from, effective_to, source-title fragment, then fuel-order triples.
 # Aggregates are KES/litre. Retail price is the official Nairobi maximum price.
@@ -67,6 +80,7 @@ def main() -> None:
                     "Retail_Price": f"{retail[index]:.2f}",
                     "Reconstructed_Price": f"{reconstructed:.2f}",
                     "Reconstruction_Error": f"{reconstructed - retail[index]:.2f}",
+                    "Source_ID": SOURCE_IDS[start],
                     "Source_Title": source["Title"],
                     "PDF_URL": source["PDF_URL"],
                     "Verification_Status": "Reviewed and reconciled",

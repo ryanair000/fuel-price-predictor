@@ -1,4 +1,4 @@
-"""Fuel-price reconstruction and scenario calculations."""
+"""Deterministic reconstruction and scenario calculations."""
 
 from __future__ import annotations
 
@@ -24,12 +24,10 @@ class ScenarioResult:
 
 
 def reconstruct_price(row: pd.Series | dict[str, float]) -> float:
-    """Sum the five aggregate EPRA price components."""
     return round(sum(float(row[column]) for column in AGGREGATE_COMPONENTS), 2)
 
 
 def component_shares(row: pd.Series | dict[str, float]) -> dict[str, float]:
-    """Calculate each component's percentage share of the reconstructed price."""
     total = reconstruct_price(row)
     if total <= 0:
         raise ValueError("Reconstructed price must be positive")
@@ -48,13 +46,8 @@ def scenario_estimate(
     tax_change: float = 0.0,
     stabilization_adjustment: float | None = None,
 ) -> ScenarioResult:
-    """Apply user-supplied changes to one reviewed component record."""
-    percentage_changes = (
-        landed_change_pct,
-        distribution_change_pct,
-        margin_change_pct,
-    )
-    if any(change < -100 for change in percentage_changes):
+    changes = (landed_change_pct, distribution_change_pct, margin_change_pct)
+    if any(change < -100 for change in changes):
         raise ValueError("Percentage reductions cannot be below -100%")
 
     components = {
@@ -69,13 +62,11 @@ def scenario_estimate(
         ),
         "Taxes_Levies": float(row["Taxes_Levies"]) + float(tax_change),
     }
-
-    non_stabilization = (
-        value
+    if any(
+        value < 0
         for name, value in components.items()
         if name != "Stabilization_Adjustment"
-    )
-    if any(value < 0 for value in non_stabilization):
+    ):
         raise ValueError("Scenario produces a negative cost component")
 
     base_price = reconstruct_price(row)
@@ -89,7 +80,6 @@ def scenario_estimate(
 
 
 def reconstruction_audit(frame: pd.DataFrame) -> pd.DataFrame:
-    """Recalculate all rows and compare them with the official retail price."""
     result = frame.copy()
     result["Calculated_Price"] = result.apply(reconstruct_price, axis=1)
     result["Calculated_Error"] = (

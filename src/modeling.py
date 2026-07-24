@@ -4,113 +4,129 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from sklearn.base import clone
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-FEATURE_COLUMNS = ["Month_num", "Month_sin", "Month_cos", "Lag_1", "Lag_2", "Rolling_3"]
+COMPONENT_FEATURES = [
+    "Landed_Cost",
+    "Distribution_Storage",
+    "Margins",
+    "Stabilization_Adjustment",
+    "Taxes_Levies",
+]
+FUEL_EFFECT_COLUMNS = ["Fuel_Diesel", "Fuel_Kerosene"]
+MODEL_FEATURES = [*COMPONENT_FEATURES, *FUEL_EFFECT_COLUMNS]
+TARGET_COLUMN = "Target_Retail_Price"
+JULY_2026_CYCLE = pd.Timestamp("2026-07-01")
 
 
-@dataclass
-class ForecastResult:
-    fuel_column: str
-    model_name: str
-    prediction: float
-    lower: float
-    upper: float
+class DataAvailabilityError(ValueError):
+    """Raised when verified pre-target inputs are not available."""
+
+
+@dataclass(frozen=True)
+class ModelEvaluation:
+    model: LinearRegression
+    coefficients: pd.DataFrame
+    results: pd.DataFrame
+    training_start: pd.Timestamp
+    training_end: pd.Timestamp
+    test_cycle: pd.Timestamp
+    training_records: int
+    test_records: int
     mae: float
     rmse: float
-    baseline_mae: float
-    selection_mae: float
-    selection_points: int
-    validation_points: int
-    empirical_coverage: float
-    next_date: pd.Timestamp
 
 
-def create_lagged_data(data: pd.DataFrame, fuel_column: str) -> pd.DataFrame:
-    if fuel_column not in data:
-        raise ValueError(f"Unknown fuel column: {fuel_column}")
-    frame = data.copy()
-    frame["Month_sin"] = np.sin(2 * np.pi * frame["Cycle"].dt.month / 12)
-    frame["Month_cos"] = np.cos(2 * np.pi * frame["Cycle"].dt.month / 12)
-    frame["Lag_1"] = frame[fuel_column].shift(1)
-    frame["Lag_2"] = frame[fuel_column].shift(2)
-    frame["Rolling_3"] = frame[fuel_column].shift(1).rolling(3).mean()
-    return frame.dropna().reset_index(drop=True)
+def design_matrix(frame: pd.DataFrame) -> pd.DataFrame:
+    """Encode the five component groups and fuel type for pooled regression."""
+    required = [*COMPONENT_FEATURES, "Fuel"]
+    missing = [column for column in required if column not in frame]
+    if missing:
+        raise ValueError(f"Model data is missing: {', '.join(missing)}")
+
+    matrix = frame[COMPONENT_FEATURES].astype(float).copy()
+    matrix["Fuel_Diesel"] = frame["Fuel"].eq("Diesel").astype(int)
+    matrix["Fuel_Kerosene"] = frame["Fuel"].eq("Kerosene").astype(int)
+    return matrix[MODEL_FEATURES]
 
 
-def _candidates() -> dict[str, object]:
-    return {
-        "Linear regression": LinearRegression(),
-        "Ridge regression": Ridge(alpha=10.0),
-        "Random forest": RandomForestRegressor(n_estimators=20, min_samples_leaf=3, random_state=42, n_jobs=1),
-        "Gradient boosting": GradientBoostingRegressor(n_estimators=30, max_depth=2, learning_rate=0.06, random_state=42),
-    }
+def fit_linear_regression(frame: pd.DataFrame) -> LinearRegression:
+    if len(frame) < len(MODEL_FEATURES) + 1:
+        raise ValueError("Too few records to fit the linear regression model")
+    model = LinearRegression()
+    model.fit(design_matrix(frame), frame[TARGET_COLUMN].astype(float))
+    return model
 
 
-def _walk_forward(frame: pd.DataFrame, fuel_column: str, model: object, min_train: int) -> tuple[np.ndarray, np.ndarray]:
-    actual, predicted = [], []
-    for index in range(min_train, len(frame)):
-        train, test = frame.iloc[:index], frame.iloc[[index]]
-        fitted = clone(model).fit(train[FEATURE_COLUMNS], train[fuel_column])
-        actual.append(float(test[fuel_column].iloc[0]))
-        predicted.append(float(fitted.predict(test[FEATURE_COLUMNS])[0]))
-    return np.asarray(actual), np.asarray(predicted)
-
-
-def forecast_fuel(data: pd.DataFrame, fuel_column: str, min_train: int = 24, holdout_points: int = 10) -> ForecastResult:
-    frame = create_lagged_data(data, fuel_column)
-    selection_end = len(frame) - holdout_points
-    if selection_end <= min_train + 5 or holdout_points < 6:
-        raise ValueError("Insufficient observations for model selection and final holdout testing")
-    selection_actual = frame[fuel_column].iloc[min_train:selection_end].to_numpy(dtype=float)
-    selection_baseline = frame["Lag_1"].iloc[min_train:selection_end].to_numpy(dtype=float)
-    scores: list[tuple[float, str, object | None]] = [
-        (float(mean_absolute_error(selection_actual, selection_baseline)), "Previous-cycle baseline", None)
-    ]
-    for name, candidate in _candidates().items():
-        y_true, predictions = _walk_forward(frame, fuel_column, candidate, min_train)
-        selection_count = selection_end - min_train
-        scores.append((float(mean_absolute_error(y_true[:selection_count], predictions[:selection_count])), name, candidate))
-    selection_mae, best_name, best_model = min(scores, key=lambda item: item[0])
-    actual = frame[fuel_column].iloc[selection_end:].to_numpy(dtype=float)
-    baseline_predictions = frame["Lag_1"].iloc[selection_end:].to_numpy(dtype=float)
-    if best_model is None:
-        best_predictions = baseline_predictions
-    else:
-        all_actual, all_predictions = _walk_forward(frame, fuel_column, best_model, selection_end)
-        actual, best_predictions = all_actual, all_predictions
-    best_mae = float(mean_absolute_error(actual, best_predictions))
-    baseline_mae = float(mean_absolute_error(actual, baseline_predictions))
-    residuals = actual - best_predictions
-    next_cycle = data["Cycle"].iloc[-1] + pd.DateOffset(months=1)
-    next_month_num = int(data["Month_num"].iloc[-1] + 1)
-    future = pd.DataFrame({
-        "Month_num": [next_month_num],
-        "Month_sin": [np.sin(2 * np.pi * next_cycle.month / 12)],
-        "Month_cos": [np.cos(2 * np.pi * next_cycle.month / 12)],
-        "Lag_1": [float(data[fuel_column].iloc[-1])],
-        "Lag_2": [float(data[fuel_column].iloc[-2])],
-        "Rolling_3": [float(data[fuel_column].iloc[-3:].mean())],
-    })
-    if best_model is None:
-        prediction = float(future["Lag_1"].iloc[0])
-    else:
-        prediction = float(clone(best_model).fit(frame[FEATURE_COLUMNS], frame[fuel_column]).predict(future)[0])
-    lower_q, upper_q = np.quantile(residuals, [0.1, 0.9])
-    lower, upper = max(0.0, prediction + float(lower_q)), prediction + float(upper_q)
-    covered = np.mean((actual >= best_predictions + lower_q) & (actual <= best_predictions + upper_q))
-    return ForecastResult(
-        fuel_column=fuel_column, model_name=best_name, prediction=prediction, lower=lower, upper=upper,
-        mae=best_mae, rmse=float(mean_squared_error(actual, best_predictions) ** 0.5), baseline_mae=baseline_mae,
-        selection_mae=selection_mae, selection_points=selection_end - min_train,
-        validation_points=len(actual), empirical_coverage=float(covered), next_date=next_cycle,
+def coefficient_table(model: LinearRegression) -> pd.DataFrame:
+    values = [float(model.intercept_), *[float(value) for value in model.coef_]]
+    return pd.DataFrame(
+        {
+            "Term": ["Intercept", *MODEL_FEATURES],
+            "Coefficient": values,
+        }
     )
 
 
-def build_trend_chart(data: pd.DataFrame, fuel_column: str, result: ForecastResult) -> pd.DataFrame:
-    history = data[["Cycle", fuel_column]].rename(columns={fuel_column: "Historical"}).set_index("Cycle")
-    forecast = pd.Series([float(data[fuel_column].iloc[-1]), result.prediction], index=[data["Cycle"].iloc[-1], result.next_date], name="Forecast")
-    return history.join(forecast, how="outer")
+def evaluate_latest_cycle(frame: pd.DataFrame) -> ModelEvaluation:
+    """Train chronologically and reserve the latest complete target cycle."""
+    data = frame.sort_values(["Target_Cycle", "Fuel"]).reset_index(drop=True)
+    cycles = data["Target_Cycle"].drop_duplicates().sort_values()
+    if len(cycles) < 2:
+        raise ValueError("At least two target cycles are required for evaluation")
+
+    test_cycle = pd.Timestamp(cycles.iloc[-1])
+    training = data.loc[data["Target_Cycle"] < test_cycle]
+    testing = data.loc[data["Target_Cycle"].eq(test_cycle)]
+    if set(testing["Fuel"]) != {"Super Petrol", "Diesel", "Kerosene"}:
+        raise ValueError("The chronological test cycle must contain all three fuels")
+
+    model = fit_linear_regression(training)
+    predictions = model.predict(design_matrix(testing))
+    results = testing[["Input_Cycle", "Target_Cycle", "Fuel", TARGET_COLUMN]].copy()
+    results["Predicted_Retail_Price"] = predictions
+    results["Absolute_Error"] = (
+        results["Predicted_Retail_Price"] - results[TARGET_COLUMN]
+    ).abs()
+    results["Percentage_Error"] = (
+        results["Absolute_Error"] / results[TARGET_COLUMN] * 100
+    )
+
+    return ModelEvaluation(
+        model=model,
+        coefficients=coefficient_table(model),
+        results=results.reset_index(drop=True),
+        training_start=pd.Timestamp(training["Target_Cycle"].min()),
+        training_end=pd.Timestamp(training["Target_Cycle"].max()),
+        test_cycle=test_cycle,
+        training_records=len(training),
+        test_records=len(testing),
+        mae=float(mean_absolute_error(results[TARGET_COLUMN], predictions)),
+        rmse=float(np.sqrt(mean_squared_error(results[TARGET_COLUMN], predictions))),
+    )
+
+
+def predict_for_cycle(
+    model: LinearRegression,
+    frame: pd.DataFrame,
+    target_cycle: pd.Timestamp,
+) -> pd.DataFrame:
+    target = pd.Timestamp(target_cycle)
+    inputs = frame.loc[frame["Target_Cycle"].eq(target)].copy()
+    if set(inputs["Fuel"]) != {"Super Petrol", "Diesel", "Kerosene"}:
+        raise DataAvailabilityError(
+            f"Verified pre-target component inputs are unavailable for "
+            f"{target:%B %Y}."
+        )
+    inputs["Predicted_Retail_Price"] = model.predict(design_matrix(inputs))
+    return inputs[
+        ["Input_Cycle", "Target_Cycle", "Fuel", "Predicted_Retail_Price"]
+    ].reset_index(drop=True)
+
+
+def predict_july_2026(
+    model: LinearRegression,
+    frame: pd.DataFrame,
+) -> pd.DataFrame:
+    return predict_for_cycle(model, frame, JULY_2026_CYCLE)

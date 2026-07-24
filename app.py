@@ -1,463 +1,412 @@
 from __future__ import annotations
 
-from datetime import date
-
 import pandas as pd
 import streamlit as st
 
 from src.calculators import cost_for_litres, litres_for_budget, trip_estimate
 from src.data import (
     FUEL_COLUMNS,
-    get_price,
     load_component_history,
-    load_components,
-    load_history,
     load_official_prices,
+    load_prediction_dataset,
     load_sources,
 )
-from src.hybrid import (
-    AGGREGATE_COMPONENTS,
-    component_shares,
-    reconstruct_price,
-    scenario_estimate,
+from src.modeling import (
+    COMPONENT_FEATURES,
+    JULY_2026_CYCLE,
+    DataAvailabilityError,
+    evaluate_latest_cycle,
+    fit_linear_regression,
+    predict_july_2026,
 )
-from src.modeling import FEATURE_COLUMNS, build_trend_chart, forecast_fuel
+from src.pricing import component_shares, reconstruct_price, scenario_estimate
 
-FUEL_CODES = {
-    "Super Petrol": "PMS",
-    "Diesel": "AGO",
-    "Kerosene": "DPK",
-}
-
+PROJECT_TITLE = (
+    "Design and Implementation of a Component-Based Fuel Price Prediction "
+    "System Using Multiple Linear Regression in Nairobi, Kenya"
+)
+FUEL_ORDER = ["Super Petrol", "Diesel", "Kerosene"]
 COMPONENT_LABELS = {
-    "Landed_Cost": "Landed product cost",
+    "Landed_Cost": "Landed cost",
     "Distribution_Storage": "Distribution and storage",
-    "Margins": "Wholesale and retail margins",
-    "Stabilization_Adjustment": "Price stabilization",
+    "Margins": "Margins",
+    "Stabilization_Adjustment": "Stabilization adjustment",
     "Taxes_Levies": "Taxes and levies",
+}
+COMPONENT_DESCRIPTIONS = {
+    "Landed_Cost": "Imported product cost, freight, insurance, financing, port costs and exchange-rate effects already included in the landed value.",
+    "Distribution_Storage": "Jetty handling, storage, pipeline transport, allowable losses, depot handling and Nairobi delivery.",
+    "Margins": "Approved wholesale, retail investment and retail operating margins.",
+    "Stabilization_Adjustment": "Signed subsidy, compensation, deficit, surplus or approved reconciliation adjustment.",
+    "Taxes_Levies": "Excise, VAT and applicable statutory petroleum, road, regulatory and import-related charges.",
 }
 
 
 @st.cache_data
 def load_project_data() -> tuple[pd.DataFrame, ...]:
     return (
-        load_history(),
         load_official_prices(),
-        load_components(),
         load_component_history(),
+        load_prediction_dataset(),
         load_sources(),
     )
 
 
-@st.cache_data(show_spinner="Evaluating forecasting methods...")
-def get_forecast(fuel_column: str):
-    return forecast_fuel(load_history(), fuel_column)
+def money(value: float) -> str:
+    return f"KSh {value:,.2f}"
 
 
-def format_table_dates(frame: pd.DataFrame) -> pd.DataFrame:
-    formatted = frame.copy()
-    for column in ("Cycle", "Effective_From", "Effective_To", "Accessed_On"):
-        if column in formatted.columns:
-            formatted[column] = pd.to_datetime(formatted[column]).dt.strftime("%d %b %Y")
-    return formatted
-
-
-def show_source_link(url: str, label: str = "Open source") -> None:
-    st.markdown(f"[{label}]({url})")
-
-
-def overview_page(
-    official: pd.DataFrame,
-    current: pd.Series,
-    history: pd.DataFrame,
-    source_urls: dict[str, str],
-) -> None:
-    st.header("Official Nairobi fuel prices")
-    active = current["Effective_From"].date() <= date.today() <= current["Effective_To"].date()
-    status = "Active EPRA cycle" if active else "Latest verified record in the project dataset"
-    st.caption(
-        f"{status}: {current['Effective_From']:%d %b %Y} to "
-        f"{current['Effective_To']:%d %b %Y}. Prices are maximum retail caps."
+def home_page(official: pd.DataFrame) -> None:
+    st.header("Component-based prediction and fuel planning")
+    st.write(
+        "MafutaPlan uses verified fuel-cost components to study Nairobi maximum "
+        "retail prices and supports practical fuel budgeting."
+    )
+    st.info(
+        "July 2026 is the final evaluation target. The application never uses "
+        "July component values to predict July prices."
     )
 
     columns = st.columns(3)
-    for column, fuel in zip(columns, FUEL_COLUMNS):
-        with column:
-            st.metric(
-                f"{fuel} ({FUEL_CODES[fuel]})",
-                f"KSh {get_price(official, fuel):,.2f}/L",
-            )
+    for column, fuel in zip(columns, FUEL_ORDER):
+        column.metric(fuel, money(float(official[FUEL_COLUMNS[fuel]].iloc[0])))
+    st.caption("Official July 2026 Nairobi maximum retail prices, shown for evaluation.")
 
-    show_source_link(source_urls[current["Source_ID"]], "View the EPRA evidence")
-
-    st.subheader("Price history")
-    st.line_chart(
-        history.set_index("Cycle")[["Super_Petrol", "Diesel", "Kerosene"]]
+    st.subheader("Who the system is for")
+    st.write(
+        "MafutaPlan is designed primarily for Nairobi transport operators and "
+        "small transport businesses that need fuel-price information for "
+        "budgeting and journey-cost planning."
+    )
+    st.write(
+        "Primary users include ride-hailing drivers, taxi and matatu operators, "
+        "courier businesses, and small logistics firms. Private motorists, "
+        "households using kerosene, students, and researchers are secondary users."
+    )
+    st.subheader("User persona")
+    st.write(
+        "**Brian, a Nairobi ride-hailing driver**, uses MafutaPlan to view the "
+        "July prediction status, understand price factors, estimate weekly fuel "
+        "expenses, calculate journey costs, and plan his budget."
+    )
+    st.warning(
+        "Academic disclaimer: MafutaPlan is not an EPRA service and does not "
+        "replace an official price announcement. Station prices may be below the "
+        "regulated maximum."
     )
 
 
-def journey_page(
-    components: pd.DataFrame,
-    source_urls: dict[str, str],
+def july_prediction_page(
+    official: pd.DataFrame,
+    prediction_data: pd.DataFrame,
 ) -> None:
-    st.header("How the Nairobi pump price is built")
+    st.header("July 2026 Prediction")
+    st.write(
+        "Method: one pooled multiple linear regression model using the five "
+        "component groups and encoded fuel type."
+    )
+
+    production_training = prediction_data.loc[
+        prediction_data["Target_Cycle"] < JULY_2026_CYCLE
+    ]
+    model = fit_linear_regression(production_training)
+    official_values = {
+        fuel: float(official[FUEL_COLUMNS[fuel]].iloc[0]) for fuel in FUEL_ORDER
+    }
+
+    try:
+        july = predict_july_2026(model, prediction_data).set_index("Fuel")
+    except DataAvailabilityError:
+        july = None
+
+    fuel = st.selectbox("Fuel product", FUEL_ORDER)
+    st.write("**Intended input cycle:** June 2026")
+    st.write("**Target cycle:** July 2026")
+    st.write("**Official July price:**", money(official_values[fuel]))
+
+    if july is None:
+        st.error(
+            "Prediction not produced: the repository has no verified June 2026 "
+            "component record. Using July components would leak target-cycle "
+            "information, and using March components would change the forecast "
+            "horizon without evidence."
+        )
+        columns = st.columns(3)
+        columns[0].metric("Predicted July price", "Unavailable")
+        columns[1].metric("Absolute error", "Unavailable")
+        columns[2].metric("Percentage error", "Unavailable")
+    else:
+        prediction = float(july.loc[fuel, "Predicted_Retail_Price"])
+        error = abs(prediction - official_values[fuel])
+        columns = st.columns(3)
+        columns[0].metric("Predicted July price", money(prediction))
+        columns[1].metric("Absolute error", money(error))
+        columns[2].metric(
+            "Percentage error", f"{error / official_values[fuel] * 100:.2f}%"
+        )
+
+    st.subheader("Required component inputs")
+    st.write(", ".join(COMPONENT_LABELS[column] for column in COMPONENT_FEATURES))
+    st.warning(
+        "A model estimate is not an official EPRA announcement. July official "
+        "prices are held outside training and are used only for final evaluation."
+    )
+
+
+def factors_page(component_history: pd.DataFrame) -> None:
+    st.header("Factors Affecting Fuel Price")
+    fuel = st.selectbox("Fuel product", FUEL_ORDER)
+    latest = (
+        component_history.loc[component_history["Fuel"].eq(fuel)]
+        .sort_values("Effective_From")
+        .iloc[-1]
+    )
     st.caption(
-        "Kenya imports refined petroleum products. The regulated price includes "
-        "the landed product cost, inland distribution, margins, taxes and any "
-        "approved stabilization adjustment."
+        f"Latest verified component record: "
+        f"{latest.Effective_From:%d %b %Y} to {latest.Effective_To:%d %b %Y}"
     )
 
-    steps = (
-        "International procurement of refined PMS, AGO and DPK",
-        "Ocean freight, insurance and financing",
-        "Port handling, inspection and primary storage in Mombasa",
-        "Pipeline transport and allowable losses to Nairobi",
-        "Nairobi depot storage and local delivery",
-        "Wholesale and retail margins",
-        "Taxes and statutory levies",
-        "Price stabilization adjustment",
+    shares = component_shares(latest)
+    rows = pd.DataFrame(
+        [
+            {
+                "Component": COMPONENT_LABELS[column],
+                "Value (KSh/L)": float(latest[column]),
+                "Share of reconstructed price (%)": shares[column],
+            }
+            for column in COMPONENT_FEATURES
+        ]
     )
-    for number, step in enumerate(steps, start=1):
-        st.markdown(f"**{number}. {step}**")
-
-    st.divider()
-    fuel = st.selectbox("Fuel product", list(FUEL_COLUMNS), key="journey_fuel")
-    detail = components.loc[components["Fuel"].eq(fuel)].copy()
-    grouped = detail.groupby("Category", as_index=False)["KES_Per_Litre"].sum()
-    total = float(grouped["KES_Per_Litre"].sum())
-
-    st.metric("Published retail total", f"KSh {total:,.2f}/L")
-    st.caption(
-        f"Component example effective {detail['Effective_From'].iloc[0]:%d %b %Y} "
-        f"to {detail['Effective_To'].iloc[0]:%d %b %Y}."
-    )
-    st.bar_chart(grouped.set_index("Category")["KES_Per_Litre"], horizontal=True)
     st.dataframe(
-        detail[["Component", "Category", "KES_Per_Litre"]].rename(
-            columns={"KES_Per_Litre": "KSh per litre"}
+        rows.style.format(
+            {
+                "Value (KSh/L)": "{:.2f}",
+                "Share of reconstructed price (%)": "{:.1f}",
+            }
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    st.bar_chart(rows.set_index("Component")["Value (KSh/L)"])
+
+    for component in COMPONENT_FEATURES:
+        st.markdown(
+            f"**{COMPONENT_LABELS[component]}:** "
+            f"{COMPONENT_DESCRIPTIONS[component]}"
+        )
+    st.caption(
+        "Holding other components constant, an increase raises the deterministic "
+        "scenario estimate; a decrease lowers it. Stabilization may be positive "
+        "or negative."
+    )
+
+    st.subheader("What-if scenario")
+    landed = st.slider("Landed-cost change (%)", -25, 25, 0)
+    taxes = st.number_input("Taxes and levies change (KSh/L)", value=0.0, step=0.5)
+    scenario = scenario_estimate(
+        latest, landed_change_pct=float(landed), tax_change=float(taxes)
+    )
+    columns = st.columns(3)
+    columns[0].metric("Historical base", money(scenario.base_price))
+    columns[1].metric("Scenario estimate", money(scenario.estimated_price))
+    columns[2].metric("Change", money(scenario.change))
+    st.info("This scenario uses deterministic addition. It is not a prediction.")
+
+
+def reconstruction_page(component_history: pd.DataFrame) -> None:
+    st.header("Price Reconstruction")
+    cycles = (
+        component_history["Effective_From"].drop_duplicates().sort_values(ascending=False)
+    )
+    cycle = st.selectbox(
+        "Verified historical cycle",
+        cycles,
+        format_func=lambda value: pd.Timestamp(value).strftime("%d %B %Y"),
+    )
+    fuel = st.selectbox("Fuel product", FUEL_ORDER)
+    row = component_history.loc[
+        component_history["Effective_From"].eq(cycle)
+        & component_history["Fuel"].eq(fuel)
+    ].iloc[0]
+
+    reconstructed = reconstruct_price(row)
+    columns = st.columns(3)
+    columns[0].metric("Published price", money(float(row.Retail_Price)))
+    columns[1].metric("Reconstructed price", money(reconstructed))
+    columns[2].metric(
+        "Reconstruction error", money(reconstructed - float(row.Retail_Price))
+    )
+
+    st.dataframe(
+        pd.DataFrame(
+            {
+                "Component": [
+                    COMPONENT_LABELS[column] for column in COMPONENT_FEATURES
+                ],
+                "KSh/L": [float(row[column]) for column in COMPONENT_FEATURES],
+            }
+        ).style.format({"KSh/L": "{:.2f}"}),
+        hide_index=True,
+        width="stretch",
+    )
+    st.link_button("Open official EPRA source", row.PDF_URL)
+    st.info(
+        "Reconstruction adds known components from the same historical cycle. "
+        "It validates the official build-up; it is not machine learning."
+    )
+
+
+def calculator_page(official: pd.DataFrame) -> None:
+    st.header("Fuel Calculator")
+    fuel = st.selectbox("Fuel product", FUEL_ORDER)
+    default_price = float(official[FUEL_COLUMNS[fuel]].iloc[0])
+    price = st.number_input(
+        "Price per litre (KSh)", min_value=0.01, value=default_price, step=0.01
+    )
+
+    st.subheader("Fuel purchase")
+    litres = st.number_input("Litres to buy", min_value=0.01, value=20.0)
+    st.metric("Cost", money(cost_for_litres(litres, price)))
+
+    st.subheader("Budget")
+    budget = st.number_input("Available budget (KSh)", min_value=0.01, value=5000.0)
+    st.metric("Litres available", f"{litres_for_budget(budget, price):,.2f} L")
+
+    st.subheader("Journey")
+    distance = st.number_input("Journey distance (km)", min_value=0.01, value=50.0)
+    efficiency = st.number_input(
+        "Vehicle efficiency (km/L)", min_value=0.01, value=12.0
+    )
+    contingency = st.slider("Traffic or contingency allowance (%)", 0, 100, 10)
+    trip = trip_estimate(distance, efficiency, price, contingency)
+    columns = st.columns(3)
+    columns[0].metric("Base fuel", f"{trip['base_litres']:.2f} L")
+    columns[1].metric("Fuel with allowance", f"{trip['litres']:.2f} L")
+    columns[2].metric("Journey cost", money(trip["cost"]))
+
+
+def methodology_page(
+    prediction_data: pd.DataFrame,
+    component_history: pd.DataFrame,
+    sources: pd.DataFrame,
+) -> None:
+    st.header("Data and Methodology")
+    evaluation = evaluate_latest_cycle(prediction_data)
+
+    st.subheader("Multiple linear regression")
+    st.write(
+        "Multiple linear regression learns how several fuel-cost components "
+        "relate to the following cycle's retail price. It assigns one coefficient "
+        "to each component and adds encoded fuel-type effects."
+    )
+    st.code(
+        "Predicted price = intercept + b1×landed cost + "
+        "b2×distribution/storage + b3×margins + b4×stabilization + "
+        "b5×taxes/levies + fuel-type effect"
+    )
+    st.caption(
+        "The intercept is the starting value. A coefficient describes the model's "
+        "fitted association with an input; it is not proof of causation."
+    )
+
+    columns = st.columns(4)
+    columns[0].metric("Training records", evaluation.training_records)
+    columns[1].metric("Test records", evaluation.test_records)
+    columns[2].metric("Test MAE", money(evaluation.mae))
+    columns[3].metric("Test RMSE", money(evaluation.rmse))
+    st.write(
+        f"**Training targets:** {evaluation.training_start:%B %Y} to "
+        f"{evaluation.training_end:%B %Y}"
+    )
+    st.write(f"**Chronological test target:** {evaluation.test_cycle:%B %Y}")
+    st.write("**Final July target:** excluded from all training.")
+
+    st.subheader("Learned coefficients")
+    st.dataframe(
+        evaluation.coefficients.style.format({"Coefficient": "{:.6f}"}),
+        hide_index=True,
+        width="stretch",
+    )
+
+    st.subheader("Actual versus predicted chronological test")
+    results = evaluation.results.rename(
+        columns={
+            "Target_Retail_Price": "Actual",
+            "Predicted_Retail_Price": "Predicted",
+        }
+    )
+    st.bar_chart(results.set_index("Fuel")[["Actual", "Predicted"]])
+    st.dataframe(
+        results[
+            ["Fuel", "Actual", "Predicted", "Absolute_Error", "Percentage_Error"]
+        ].style.format(
+            {
+                "Actual": "{:.2f}",
+                "Predicted": "{:.2f}",
+                "Absolute_Error": "{:.2f}",
+                "Percentage_Error": "{:.2f}%",
+            }
         ),
         hide_index=True,
         width="stretch",
     )
 
-    source_id = str(detail["Source_ID"].iloc[0])
-    show_source_link(source_urls[source_id], "Open the EPRA component source")
-    formula_url = source_urls.get("EPRA_FORMULA")
-    if formula_url:
-        show_source_link(formula_url, "Read EPRA's pump-price formula")
-
-
-def reconstruction_page(component_history: pd.DataFrame) -> None:
-    st.header("Reconstruct an official price")
-    st.caption(
-        "Select a reviewed EPRA cycle and verify that the five aggregate cost "
-        "groups reproduce the published Nairobi retail price."
-    )
-
-    cycles = sorted(component_history["Effective_From"].unique(), reverse=True)
-    selected_cycle = st.selectbox(
-        "EPRA component cycle",
-        cycles,
-        format_func=lambda value: pd.Timestamp(value).strftime("%d %B %Y"),
-    )
-    fuel = st.selectbox(
-        "Fuel product",
-        list(FUEL_COLUMNS),
-        key="reconstruction_fuel",
-    )
-    row = component_history.loc[
-        component_history["Effective_From"].eq(pd.Timestamp(selected_cycle))
-        & component_history["Fuel"].eq(fuel)
-    ].iloc[0]
-
-    calculated = reconstruct_price(row)
-    left, middle, right = st.columns(3)
-    left.metric("Official EPRA price", f"KSh {row['Retail_Price']:.2f}/L")
-    middle.metric("Reconstructed price", f"KSh {calculated:.2f}/L")
-    right.metric(
-        "Difference",
-        f"KSh {calculated - row['Retail_Price']:+.2f}",
-    )
-
-    shares = component_shares(row)
-    table = pd.DataFrame(
-        {
-            "Component": [COMPONENT_LABELS[column] for column in AGGREGATE_COMPONENTS],
-            "KSh per litre": [float(row[column]) for column in AGGREGATE_COMPONENTS],
-            "Share of price": [f"{shares[column]:.1f}%" for column in AGGREGATE_COMPONENTS],
-        }
-    )
-    st.bar_chart(table.set_index("Component")["KSh per litre"], horizontal=True)
-    st.dataframe(table, hide_index=True, width="stretch")
-    show_source_link(row["PDF_URL"], "Open the EPRA release used for this record")
-    st.caption(str(row["Quality_Notes"]))
-
-
-def forecast_page(
-    history: pd.DataFrame,
-    component_history: pd.DataFrame,
-) -> None:
-    st.header("Forecast and scenarios")
-    st.caption(
-        "The statistical forecast and the component scenario are separate. "
-        "Neither is an EPRA announcement."
-    )
-
-    fuel = st.selectbox("Fuel product", list(FUEL_COLUMNS), key="forecast_fuel")
-    fuel_column = FUEL_COLUMNS[fuel]
-    result = get_forecast(fuel_column)
-
-    forecast_tab, scenario_tab, methods_tab = st.tabs(
-        ["Next-cycle forecast", "Cost scenario", "Method"]
-    )
-
-    with forecast_tab:
-        columns = st.columns(4)
-        columns[0].metric(
-            f"{result.next_date:%B %Y} estimate",
-            f"KSh {result.prediction:,.2f}/L",
-        )
-        columns[1].metric(
-            "Historical error range",
-            f"{result.lower:,.2f} - {result.upper:,.2f}",
-        )
-        columns[2].metric("Holdout MAE", f"KSh {result.mae:.2f}")
-        columns[3].metric("Baseline MAE", f"KSh {result.baseline_mae:.2f}")
-
-        st.line_chart(build_trend_chart(history, fuel_column, result))
-        comparison = "beat" if result.mae < result.baseline_mae else "did not beat"
-        st.info(
-            f"Selected method: **{result.model_name}**. It was selected using "
-            f"{result.selection_points} sequential forecasts and evaluated on "
-            f"{result.validation_points} later cycles. It {comparison} the "
-            "previous-cycle baseline on the holdout period."
-        )
-        st.warning(
-            "Use this as an academic planning estimate only. Policy changes, "
-            "taxes, stabilization and market shocks can move the official price."
-        )
-
-    with scenario_tab:
-        basis = (
-            component_history.loc[component_history["Fuel"].eq(fuel)]
-            .sort_values("Effective_From")
-            .iloc[-1]
-        )
-        st.caption(
-            f"Scenario basis: reviewed EPRA components effective "
-            f"{basis['Effective_From']:%d %b %Y} to "
-            f"{basis['Effective_To']:%d %b %Y}."
-        )
-
-        first, second, third = st.columns(3)
-        landed_change = first.slider("Landed-cost change", -30, 40, 0, format="%d%%")
-        distribution_change = second.slider(
-            "Distribution/storage change", -20, 30, 0, format="%d%%"
-        )
-        margin_change = third.slider("Margin change", -20, 30, 0, format="%d%%")
-
-        fourth, fifth = st.columns(2)
-        tax_change = fourth.number_input(
-            "Tax or levy change (KSh/L)",
-            value=0.0,
-            step=1.0,
-        )
-        stabilization = fifth.number_input(
-            "Stabilization adjustment (KSh/L)",
-            value=float(basis["Stabilization_Adjustment"]),
-            step=0.5,
-        )
-
-        scenario = scenario_estimate(
-            basis,
-            landed_change_pct=landed_change,
-            distribution_change_pct=distribution_change,
-            margin_change_pct=margin_change,
-            tax_change=tax_change,
-            stabilization_adjustment=stabilization,
-        )
-
-        columns = st.columns(3)
-        columns[0].metric("Reviewed basis", f"KSh {scenario.base_price:.2f}/L")
-        columns[1].metric("Scenario estimate", f"KSh {scenario.estimated_price:.2f}/L")
-        columns[2].metric("Change", f"KSh {scenario.change:+.2f}/L")
-
-        chart = pd.DataFrame(
-            {
-                "Component": [COMPONENT_LABELS[key] for key in scenario.components],
-                "KSh per litre": list(scenario.components.values()),
-            }
-        )
-        st.bar_chart(chart.set_index("Component"), horizontal=True)
-
-    with methods_tab:
-        st.markdown(
-            "The project compares a previous-cycle baseline with linear regression, "
-            "ridge regression, random forest and gradient boosting. Model selection "
-            "uses expanding-window validation, followed by a separate ten-cycle holdout."
-        )
-        st.markdown("**Forecast features**")
-        st.code(", ".join(FEATURE_COLUMNS))
-        st.caption(
-            "All features are based on the calendar or prices available before the "
-            "target cycle. Same-cycle external values are excluded."
-        )
-
-
-def calculator_page(official: pd.DataFrame) -> None:
-    st.header("Fuel planning calculator")
-    st.caption("Calculations use the selected official Nairobi maximum retail price.")
-
-    fuel = st.selectbox("Fuel product", list(FUEL_COLUMNS), key="calculator_fuel")
-    price = get_price(official, fuel)
-    st.metric("Price used", f"KSh {price:.2f}/L")
-
-    mode = st.radio(
-        "Calculation",
-        ["Cost for litres", "Litres for a budget", "Trip cost"],
-        horizontal=True,
-    )
-
-    if mode == "Cost for litres":
-        litres = st.number_input("Litres", min_value=0.1, value=20.0, step=1.0)
-        st.metric("Estimated cost", f"KSh {cost_for_litres(litres, price):,.2f}")
-    elif mode == "Litres for a budget":
-        budget = st.number_input(
-            "Budget (KSh)",
-            min_value=1.0,
-            value=3000.0,
-            step=100.0,
-        )
-        st.metric("Fuel available", f"{litres_for_budget(budget, price):,.2f} L")
-    else:
-        first, second, third = st.columns(3)
-        distance = first.number_input(
-            "Complete journey distance (km)",
-            min_value=0.1,
-            value=100.0,
-        )
-        efficiency = second.number_input(
-            "Vehicle efficiency (km/L)",
-            min_value=0.1,
-            value=12.0,
-        )
-        contingency = third.slider("Traffic allowance", 0, 30, 10, format="%d%%")
-        result = trip_estimate(distance, efficiency, price, contingency)
-        left, right = st.columns(2)
-        left.metric("Fuel required", f"{result['litres']:.2f} L")
-        right.metric("Estimated trip cost", f"KSh {result['cost']:,.2f}")
-        st.caption("Include the return leg in the journey distance where applicable.")
-
-
-def evidence_page(
-    history: pd.DataFrame,
-    component_history: pd.DataFrame,
-    sources: pd.DataFrame,
-) -> None:
-    st.header("Data and methodology")
-    st.caption(
-        "The application uses a continuous Nairobi price history, a reviewed EPRA "
-        "component panel and a first-party source register."
-    )
-
-    fuel = st.selectbox("Fuel product", list(FUEL_COLUMNS), key="evidence_fuel")
-    fuel_column = FUEL_COLUMNS[fuel]
-    result = get_forecast(fuel_column)
-
-    st.line_chart(
-        history.set_index("Cycle")[[fuel_column]].rename(
-            columns={fuel_column: "KSh per litre"}
-        )
-    )
-
-    columns = st.columns(4)
-    columns[0].metric("Selected method", result.model_name)
-    columns[1].metric("Holdout MAE", f"KSh {result.mae:.2f}")
-    columns[2].metric("Holdout RMSE", f"KSh {result.rmse:.2f}")
-    columns[3].metric("Baseline MAE", f"KSh {result.baseline_mae:.2f}")
-
-    st.subheader("Evaluation design")
+    st.subheader("Data coverage and limitations")
     st.write(
-        "Candidate methods are compared through expanding-window forecasts on an "
-        "earlier selection period. The selected method is then evaluated on the "
-        "final ten cycles."
+        f"The reviewed panel has {len(component_history)} fuel-cycle rows across "
+        f"{component_history['Effective_From'].nunique()} official cycles. The "
+        f"model-ready table has {len(prediction_data)} one-cycle-ahead records."
     )
-    st.caption(
-        "The dataset is small and policy-sensitive, so model accuracy should be "
-        "interpreted cautiously."
+    st.warning(
+        "The component sample is small and discontinuous. June 2026 components "
+        "are not verified, so July predictions cannot be released. Regulatory "
+        "decisions, taxes, and stabilization can change abruptly. Results do not "
+        "generalise to station-level prices and do not replace EPRA."
     )
 
-    with st.expander("Verified Nairobi history"):
-        columns_to_show = [
-            "Cycle",
-            "Effective_From",
-            "Effective_To",
-            *FUEL_COLUMNS.values(),
-            "Source_ID",
-        ]
-        st.dataframe(
-            format_table_dates(history[columns_to_show]),
-            hide_index=True,
-            width="stretch",
-        )
-
-    with st.expander("Reviewed component panel"):
-        st.dataframe(
-            format_table_dates(component_history),
-            hide_index=True,
-            width="stretch",
-        )
-
-    with st.expander("Source register"):
-        st.dataframe(format_table_dates(sources), hide_index=True, width="stretch")
+    st.subheader("Source register")
+    st.dataframe(
+        sources[["Source_ID", "Publisher", "Title", "URL"]],
+        hide_index=True,
+        width="stretch",
+    )
 
 
 def main() -> None:
-    st.set_page_config(
-        page_title="MafutaPlan",
-        page_icon="⛽",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
-
-    history, official, components, component_history, sources = load_project_data()
-    current = official.iloc[0]
-    source_urls = sources.set_index("Source_ID")["URL"].to_dict()
+    st.set_page_config(page_title="MafutaPlan", page_icon="⛽", layout="wide")
+    official, component_history, prediction_data, sources = load_project_data()
 
     st.sidebar.title("MafutaPlan")
-    st.sidebar.caption("BSc IT final project")
+    st.sidebar.caption("BSc Information Technology final project")
     page = st.sidebar.radio(
         "Navigation",
         [
-            "Overview",
-            "Price build-up",
-            "Cost reconstruction",
-            "Forecast & scenarios",
-            "Calculator",
-            "Data & methodology",
+            "Home",
+            "July 2026 Prediction",
+            "Factors Affecting Fuel Price",
+            "Price Reconstruction",
+            "Fuel Calculator",
+            "Data and Methodology",
         ],
     )
     st.sidebar.divider()
-    st.sidebar.caption(
-        "Official prices and source records come from EPRA. Forecasts and scenarios "
-        "are academic estimates."
-    )
+    st.sidebar.caption("Nairobi • Super Petrol • Diesel • Kerosene")
 
     st.title("MafutaPlan")
-    st.caption("Nairobi fuel-price analysis and planning")
+    st.caption(PROJECT_TITLE)
 
-    if page == "Overview":
-        overview_page(official, current, history, source_urls)
-    elif page == "Price build-up":
-        journey_page(components, source_urls)
-    elif page == "Cost reconstruction":
+    if page == "Home":
+        home_page(official)
+    elif page == "July 2026 Prediction":
+        july_prediction_page(official, prediction_data)
+    elif page == "Factors Affecting Fuel Price":
+        factors_page(component_history)
+    elif page == "Price Reconstruction":
         reconstruction_page(component_history)
-    elif page == "Forecast & scenarios":
-        forecast_page(history, component_history)
-    elif page == "Calculator":
+    elif page == "Fuel Calculator":
         calculator_page(official)
     else:
-        evidence_page(history, component_history, sources)
+        methodology_page(prediction_data, component_history, sources)
 
 
 if __name__ == "__main__":
