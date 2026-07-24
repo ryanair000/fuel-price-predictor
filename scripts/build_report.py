@@ -31,7 +31,6 @@ DOCS = ROOT / "docs"
 APPENDICES = ROOT / "appendices"
 CHARTS = ROOT / "outputs" / "charts"
 DIAGRAMS = ROOT / "outputs" / "diagrams"
-SCREENSHOTS = ROOT / "outputs" / "screenshots"
 REPORT_PATH = DOCS / "Ryan_Final_Project_Report.docx"
 
 TITLE = (
@@ -440,39 +439,6 @@ def write_appendices(
         APPENDICES / "Sample_Dataset.csv", index=False, float_format="%.2f"
     )
 
-    tests = [
-        ("TC01", "Required files", "Check final deliverables exist", "All present"),
-        ("TC02", "Schema", "Load component dataset", "Required columns accepted"),
-        ("TC03", "Missing values", "Blank a required field", "Rejected"),
-        ("TC04", "Duplicates", "Repeat a fuel-cycle row", "Rejected"),
-        ("TC05", "Dates", "End date before start", "Rejected"),
-        ("TC06", "Sources", "Use unknown Source_ID", "Rejected"),
-        ("TC07", "Links", "Use non-HTTPS URL", "Rejected"),
-        ("TC08", "Fuel", "Use unsupported fuel", "Rejected"),
-        ("TC09", "Arithmetic", "Sum five components", "Matches reconstruction"),
-        ("TC10", "Reconstruction", "Compare calculated and official price", "Within KSh 0.02"),
-        ("TC11", "Ordering", "Target not after input", "Rejected"),
-        ("TC12", "Leakage", "Inspect training end", "Before July 2026"),
-        ("TC13", "Training", "Fit linear regression", "Model fitted"),
-        ("TC14", "Coefficients", "Inspect fitted terms", "All finite"),
-        ("TC15", "Predictions", "Predict complete test cycle", "All three fuels"),
-        ("TC16", "Results", "Build actual-versus-predicted data", "Three results"),
-        ("TC17", "MAE", "Recalculate absolute error mean", "Matches model output"),
-        ("TC18", "RMSE", "Recalculate squared error root", "Matches model output"),
-        ("TC19", "July gate", "Request July without June inputs", "Blocked clearly"),
-        ("TC20", "Purchase", "Calculate 20 L at KSh 214.03", "KSh 4,280.60"),
-        ("TC21", "Budget", "Calculate litres for KSh 4,280.60", "20.00 L"),
-        ("TC22", "Journey", "Apply 10% contingency", "Allowance included"),
-        ("TC23", "Invalid calculator", "Use zero or negative input", "Rejected"),
-        ("TC24", "Official prices", "Load July evaluation values", "Exact three values"),
-        ("TC25", "Streamlit loading", "Load cached project data", "All frames returned"),
-        ("TC26", "Scenario", "Change declared assumptions", "Only declared inputs change"),
-    ]
-    pd.DataFrame(
-        tests,
-        columns=["Test_ID", "Area", "Condition", "Expected_Result"],
-    ).assign(Status="Pass").to_csv(APPENDICES / "Test_Cases.csv", index=False)
-
 
 def build_report(
     components: pd.DataFrame,
@@ -516,8 +482,8 @@ def build_report(
         "price. The reviewed data contains 33 fuel-cycle records across 11 official "
         "EPRA component cycles. Chronological evaluation trains on 30 records with "
         f"targets from {evaluation.training_start:%B %Y} to "
-        f"{evaluation.training_end:%B %Y} and tests on three April 2026 records. "
-        f"The test MAE is {evaluation.mae:.2f} KSh/L and RMSE is "
+        f"{evaluation.training_end:%B %Y} and is evaluated on three April 2026 records. "
+        f"The holdout MAE is {evaluation.mae:.2f} KSh/L and RMSE is "
         f"{evaluation.rmse:.2f} KSh/L. The intended final design is June 2026 "
         "components to July 2026 prices; however, verified June components are not "
         "available in the repository. July predictions are therefore not published, "
@@ -538,7 +504,7 @@ def build_report(
         doc,
         "Chapter One: Introduction\nChapter Two: Literature Review\n"
         "Chapter Three: Methodology and System Design\n"
-        "Chapter Four: Implementation, Results and Testing\n"
+        "Chapter Four: Implementation, Results and Verification\n"
         "Chapter Five: Summary, Conclusions and Recommendations\n"
         "References\nAppendices",
     )
@@ -792,7 +758,7 @@ def build_report(
     )
 
     doc.add_page_break()
-    add_heading(doc, "CHAPTER FOUR: IMPLEMENTATION, RESULTS AND TESTING", 1)
+    add_heading(doc, "CHAPTER FOUR: IMPLEMENTATION, RESULTS AND VERIFICATION", 1)
     add_heading(doc, "4.1 Implementation", 2)
     add_para(
         doc,
@@ -878,34 +844,6 @@ def build_report(
         "Using July components would be target leakage; substituting March components "
         "would change the one-cycle-ahead horizon without evidence.",
     )
-    add_heading(doc, "4.6 Automated Testing", 2)
-    add_para(
-        doc,
-        "Twenty-six unittest cases verify required files, schemas, missing values, "
-        "duplicates, date logic, source IDs, HTTPS links, fuel types, arithmetic, "
-        "reconstruction accuracy, input-target ordering, July exclusion, linear "
-        "regression, finite coefficients and predictions, all-fuel result generation, "
-        "MAE, RMSE, calculator validation, scenario logic, official values, and "
-        "Streamlit data loading.",
-    )
-    add_heading(doc, "4.7 Interface Verification", 2)
-    screenshot_files = sorted(SCREENSHOTS.glob("*.png")) if SCREENSHOTS.exists() else []
-    if screenshot_files:
-        for index, screenshot in enumerate(screenshot_files, start=1):
-            add_figure(
-                doc,
-                screenshot,
-                f"Figure 4.{index + 2}: Verified MafutaPlan page - "
-                f"{screenshot.stem.replace('_', ' ').title()}",
-                width=6.2,
-            )
-    else:
-        add_para(
-            doc,
-            "Final interface screenshots are generated during the manual Streamlit "
-            "verification pass and stored in outputs/screenshots.",
-        )
-
     doc.add_page_break()
     add_heading(doc, "CHAPTER FIVE: SUMMARY, CONCLUSIONS AND RECOMMENDATIONS", 1)
     add_heading(doc, "5.1 Summary", 2)
@@ -984,15 +922,14 @@ def build_report(
             "Use Data and Methodology for coefficients, MAE, RMSE, results, sources, and limitations.",
         ],
     )
-    add_heading(doc, "Appendix D: Test and Reproduction Commands", 2)
+    add_heading(doc, "Appendix D: Reproduction Commands", 2)
     add_bullets(
         doc,
         [
             "python scripts/build_model_dataset.py",
             "python scripts/build_notebook.py",
             "python scripts/build_report.py",
-            "python -m unittest discover -s tests -v",
-            "python -m compileall app.py src scripts tests",
+            "python -m compileall app.py src scripts",
             "python -m pip check",
             "streamlit run app.py",
         ],

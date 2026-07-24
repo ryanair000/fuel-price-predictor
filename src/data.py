@@ -8,8 +8,6 @@ import pandas as pd
 
 from .paths import (
     COMPONENT_HISTORY_PATH,
-    COMPONENTS_PATH,
-    HISTORY_PATH,
     OFFICIAL_PRICES_PATH,
     PREDICTION_DATASET_PATH,
     SOURCES_PATH,
@@ -23,13 +21,6 @@ FUEL_COLUMNS = {
     "Kerosene": "Kerosene",
 }
 PRICE_COLUMNS = list(FUEL_COLUMNS.values())
-HISTORY_COLUMNS = [
-    "Cycle",
-    "Effective_From",
-    "Effective_To",
-    *PRICE_COLUMNS,
-    "Source_ID",
-]
 COMPONENT_COLUMNS = [
     "Landed_Cost",
     "Distribution_Storage",
@@ -80,32 +71,6 @@ def load_sources(path: PathLike = SOURCES_PATH) -> pd.DataFrame:
     return frame
 
 
-def load_history(
-    path: PathLike = HISTORY_PATH,
-    sources_path: PathLike = SOURCES_PATH,
-) -> pd.DataFrame:
-    frame = pd.read_csv(path)
-    _require(frame, HISTORY_COLUMNS, "Nairobi price history")
-    _parse_dates(frame, ("Cycle", "Effective_From", "Effective_To"))
-    _validate_prices(frame, "Nairobi price history")
-
-    if frame["Cycle"].duplicated().any() or frame["Effective_From"].duplicated().any():
-        raise ValueError("Nairobi price history contains duplicate cycles")
-    if (frame["Effective_To"] < frame["Effective_From"]).any():
-        raise ValueError("An effective period ends before it begins")
-
-    frame = frame.sort_values("Cycle").reset_index(drop=True)
-    expected = pd.date_range(frame["Cycle"].min(), frame["Cycle"].max(), freq="MS")
-    if frame["Cycle"].tolist() != list(expected):
-        raise ValueError("Nairobi price history must contain one continuous row per month")
-
-    if not set(frame["Source_ID"]).issubset(_registered_source_ids(sources_path)):
-        raise ValueError("Nairobi price history references an unknown Source_ID")
-
-    frame["Month_num"] = range(1, len(frame) + 1)
-    return frame
-
-
 def load_official_prices(
     path: PathLike = OFFICIAL_PRICES_PATH,
     sources_path: PathLike = SOURCES_PATH,
@@ -131,40 +96,6 @@ def load_official_prices(
         raise ValueError("Current official price references an unknown Source_ID")
 
     return frame
-
-
-def load_components(
-    path: PathLike = COMPONENTS_PATH,
-    sources_path: PathLike = SOURCES_PATH,
-) -> pd.DataFrame:
-    frame = pd.read_csv(path)
-    columns = [
-        "Effective_From",
-        "Effective_To",
-        "Fuel",
-        "Component",
-        "Category",
-        "KES_Per_Litre",
-        "Source_ID",
-    ]
-    _require(frame, columns, "Price-component dataset")
-    _parse_dates(frame, ("Effective_From", "Effective_To"))
-    frame["KES_Per_Litre"] = pd.to_numeric(frame["KES_Per_Litre"], errors="raise")
-
-    if (frame["Effective_To"] < frame["Effective_From"]).any():
-        raise ValueError("A component effective period ends before it begins")
-    if (frame["KES_Per_Litre"] < 0).any():
-        raise ValueError("Price components cannot be negative")
-    if frame[["Effective_From", "Fuel", "Component"]].duplicated().any():
-        raise ValueError("Price-component dataset contains duplicates")
-    if not set(frame["Fuel"]).issubset(FUEL_COLUMNS):
-        raise ValueError("Price-component dataset contains an unknown fuel product")
-    if not set(frame["Source_ID"]).issubset(_registered_source_ids(sources_path)):
-        raise ValueError("Price-component dataset references an unknown Source_ID")
-
-    return frame.sort_values(["Effective_From", "Fuel", "Component"]).reset_index(
-        drop=True
-    )
 
 
 def load_component_history(
@@ -257,9 +188,3 @@ def load_prediction_dataset(
         raise ValueError("Every prediction record needs a verification status")
 
     return frame.sort_values(["Target_Cycle", "Fuel"]).reset_index(drop=True)
-
-
-def get_price(frame: pd.DataFrame, fuel: str) -> float:
-    if fuel not in FUEL_COLUMNS:
-        raise ValueError(f"Unknown fuel type: {fuel}")
-    return float(frame[FUEL_COLUMNS[fuel]].iloc[0])

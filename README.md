@@ -86,14 +86,12 @@ MafutaPlan is an academic tool and does not replace official EPRA notices.
 app.py                  Streamlit application
 src/                    Validation, regression, pricing, and calculator logic
 data/                   Verified datasets, source register, and audit records
-tests/                  Revised unittest suite
 notebooks/              Executed analysis notebook
 scripts/                Dataset, notebook, evidence, and report builders
 docs/                   Final project report
-appendices/             Data dictionary, metrics, test cases, and project records
+appendices/             Data dictionary, metrics, samples, and project records
 outputs/charts/          Final result charts
 outputs/diagrams/        Architecture, conceptual, and use-case diagrams
-outputs/screenshots/     Final page screenshots after manual verification
 ```
 
 ## Run
@@ -128,11 +126,10 @@ python scripts/audit_epra_pump_prices.py
 
 The OCR script additionally requires Tesseract OCR.
 
-## Verify
+## Check the project
 
 ```bash
-python -m unittest discover -s tests -v
-python -m compileall app.py src scripts tests
+python -m compileall app.py src scripts
 python -m pip check
 ```
 

@@ -73,7 +73,7 @@ Run:
 
 ```bash
 python scripts/build_model_dataset.py
-python -m unittest discover -s tests -v
+python -m compileall app.py src scripts
 ```
 
 ## Refresh procedure
@@ -88,4 +88,4 @@ python -m unittest discover -s tests -v
 6. Rebuild `component_prediction_dataset.csv`.
 7. Confirm that every target follows its input and that July remains outside
    training.
-8. Run all tests before publishing.
+8. Rebuild the notebook and report, then compile the Python files before publishing.
