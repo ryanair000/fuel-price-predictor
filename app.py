@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -9,10 +11,10 @@ from src.data import (
     load_component_history,
     load_official_prices,
     load_prediction_dataset,
-    load_sources,
 )
 from src.modeling import (
     COMPONENT_FEATURES,
+    ModelEvaluation,
     evaluate_latest_cycle,
 )
 from src.pricing import component_shares, reconstruct_price, scenario_estimate
@@ -20,6 +22,12 @@ from src.pricing import component_shares, reconstruct_price, scenario_estimate
 PROJECT_TITLE = (
     "Design and Implementation of a Component-Based Fuel Price Prediction "
     "System Using Multiple Linear Regression in Nairobi, Kenya"
+)
+LINEAR_REGRESSION_GUIDE = (
+    Path(__file__).resolve().parent
+    / "output"
+    / "pdf"
+    / "MafutaPlan_Linear_Regression_Explanation.pdf"
 )
 FUEL_ORDER = ["Super Petrol", "Diesel", "Kerosene"]
 COMPONENT_LABELS = {
@@ -36,6 +44,16 @@ COMPONENT_DESCRIPTIONS = {
     "Stabilization_Adjustment": "Signed subsidy, compensation, deficit, surplus or approved reconciliation adjustment.",
     "Taxes_Levies": "Excise, VAT and applicable statutory petroleum, road, regulatory and import-related charges.",
 }
+TERM_LABELS = {
+    "Intercept": "Intercept",
+    "Landed_Cost": "Landed cost",
+    "Distribution_Storage": "Distribution & storage",
+    "Margins": "Margins",
+    "Stabilization_Adjustment": "Stabilization adjustment",
+    "Taxes_Levies": "Taxes & levies",
+    "Fuel_Diesel": "Diesel fuel effect",
+    "Fuel_Kerosene": "Kerosene fuel effect",
+}
 
 
 @st.cache_data
@@ -44,12 +62,151 @@ def load_project_data() -> tuple[pd.DataFrame, ...]:
         load_official_prices(),
         load_component_history(),
         load_prediction_dataset(),
-        load_sources(),
     )
 
 
 def money(value: float) -> str:
     return f"KSh {value:,.2f}"
+
+
+def regression_graphs(evaluation: ModelEvaluation) -> None:
+    """Render holdout performance and the fitted regression coefficients."""
+    points = evaluation.results[
+        ["Fuel", "Target_Retail_Price", "Predicted_Retail_Price"]
+    ].rename(
+        columns={
+            "Target_Retail_Price": "Actual price",
+            "Predicted_Retail_Price": "Predicted price",
+        }
+    )
+    lower = float(points[["Actual price", "Predicted price"]].min().min()) - 5
+    upper = float(points[["Actual price", "Predicted price"]].max().max()) + 5
+
+    st.subheader("Linear regression: actual versus predicted")
+    st.caption(
+        "Each point is one April 2026 holdout prediction. Points closer to the "
+        "dashed ideal-fit line are more accurate."
+    )
+    st.vega_lite_chart(
+        points,
+        {
+            "height": 390,
+            "layer": [
+                {
+                    "mark": {
+                        "type": "line",
+                        "strokeDash": [7, 5],
+                        "color": "#7f8c8d",
+                    },
+                    "data": {
+                        "values": [
+                            {"Actual price": lower, "Predicted price": lower},
+                            {"Actual price": upper, "Predicted price": upper},
+                        ]
+                    },
+                    "encoding": {
+                        "x": {
+                            "field": "Actual price",
+                            "type": "quantitative",
+                            "scale": {"domain": [lower, upper]},
+                        },
+                        "y": {
+                            "field": "Predicted price",
+                            "type": "quantitative",
+                            "scale": {"domain": [lower, upper]},
+                        },
+                    },
+                },
+                {
+                    "mark": {"type": "point", "filled": True, "size": 150},
+                    "encoding": {
+                        "x": {
+                            "field": "Actual price",
+                            "type": "quantitative",
+                            "title": "Official price (KSh/L)",
+                            "scale": {"domain": [lower, upper]},
+                        },
+                        "y": {
+                            "field": "Predicted price",
+                            "type": "quantitative",
+                            "title": "Predicted price (KSh/L)",
+                            "scale": {"domain": [lower, upper]},
+                        },
+                        "color": {
+                            "field": "Fuel",
+                            "type": "nominal",
+                            "legend": {"title": "Fuel product"},
+                        },
+                        "tooltip": [
+                            {"field": "Fuel", "type": "nominal"},
+                            {
+                                "field": "Actual price",
+                                "type": "quantitative",
+                                "format": ".2f",
+                            },
+                            {
+                                "field": "Predicted price",
+                                "type": "quantitative",
+                                "format": ".2f",
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+        width="stretch",
+    )
+
+    st.subheader("Learned regression coefficients")
+    st.caption(
+        "The sign shows the fitted direction of association. Coefficient sizes "
+        "are not directly comparable because the inputs use different scales."
+    )
+    coefficients = evaluation.coefficients.loc[
+        evaluation.coefficients["Term"].ne("Intercept")
+    ].copy()
+    coefficients["Model term"] = coefficients["Term"].map(TERM_LABELS)
+    coefficients["Direction"] = coefficients["Coefficient"].map(
+        lambda value: "Positive" if value >= 0 else "Negative"
+    )
+    st.vega_lite_chart(
+        coefficients,
+        {
+            "height": 330,
+            "mark": {"type": "bar", "cornerRadiusEnd": 3},
+            "encoding": {
+                "y": {
+                    "field": "Model term",
+                    "type": "nominal",
+                    "sort": "-x",
+                    "title": None,
+                },
+                "x": {
+                    "field": "Coefficient",
+                    "type": "quantitative",
+                    "title": "Regression coefficient",
+                },
+                "color": {
+                    "field": "Direction",
+                    "type": "nominal",
+                    "scale": {
+                        "domain": ["Positive", "Negative"],
+                        "range": ["#1f77b4", "#d62728"],
+                    },
+                    "legend": None,
+                },
+                "tooltip": [
+                    {"field": "Model term", "type": "nominal"},
+                    {
+                        "field": "Coefficient",
+                        "type": "quantitative",
+                        "format": ".4f",
+                    },
+                ],
+            },
+        },
+        width="stretch",
+    )
 
 
 def home_page() -> None:
@@ -137,6 +294,7 @@ def prediction_page(
         f"{evaluation.test_records} April records; overall MAE "
         f"{evaluation.mae:.2f} KSh/L."
     )
+    regression_graphs(evaluation)
 
 
 def factors_page(component_history: pd.DataFrame) -> None:
@@ -274,10 +432,16 @@ def calculator_page(official: pd.DataFrame) -> None:
 def methodology_page(
     prediction_data: pd.DataFrame,
     component_history: pd.DataFrame,
-    sources: pd.DataFrame,
 ) -> None:
     st.header("Data and Methodology")
     evaluation = evaluate_latest_cycle(prediction_data)
+    if LINEAR_REGRESSION_GUIDE.exists():
+        st.download_button(
+            "Download linear regression explanation (PDF)",
+            data=LINEAR_REGRESSION_GUIDE.read_bytes(),
+            file_name=LINEAR_REGRESSION_GUIDE.name,
+            mime="application/pdf",
+        )
 
     st.subheader("Multiple linear regression")
     st.write(
@@ -310,21 +474,22 @@ def methodology_page(
         "April 2026 retail-price cycle."
     )
 
-    st.subheader("Learned coefficients")
+    regression_graphs(evaluation)
+
+    st.subheader("Coefficient values")
     st.dataframe(
         evaluation.coefficients.style.format({"Coefficient": "{:.6f}"}),
         hide_index=True,
         width="stretch",
     )
 
-    st.subheader("Actual versus predicted chronological test")
+    st.subheader("Chronological test values")
     results = evaluation.results.rename(
         columns={
             "Target_Retail_Price": "Actual",
             "Predicted_Retail_Price": "Predicted",
         }
     )
-    st.bar_chart(results.set_index("Fuel")[["Actual", "Predicted"]])
     st.dataframe(
         results[
             ["Fuel", "Actual", "Predicted", "Absolute_Error", "Percentage_Error"]
@@ -352,17 +517,10 @@ def methodology_page(
         "to station-level prices and do not replace EPRA."
     )
 
-    st.subheader("Source register")
-    st.dataframe(
-        sources[["Source_ID", "Publisher", "Title", "URL"]],
-        hide_index=True,
-        width="stretch",
-    )
-
 
 def main() -> None:
     st.set_page_config(page_title="MafutaPlan", page_icon="⛽", layout="wide")
-    official, component_history, prediction_data, sources = load_project_data()
+    official, component_history, prediction_data = load_project_data()
 
     st.sidebar.title("MafutaPlan")
     st.sidebar.caption("BSc Information Technology final project")
@@ -394,7 +552,7 @@ def main() -> None:
     elif page == "Fuel Calculator":
         calculator_page(official)
     else:
-        methodology_page(prediction_data, component_history, sources)
+        methodology_page(prediction_data, component_history)
 
 
 if __name__ == "__main__":

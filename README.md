@@ -4,6 +4,8 @@ MafutaPlan is a BSc Information Technology final project for Nairobi transport
 operators and small businesses. It combines a component-based fuel-price model
 with price explanations, reconstruction, and fuel-budget calculators.
 
+**Live application:** [mafutaplan.streamlit.app](https://mafutaplan.streamlit.app/)
+
 ## Forecast
 
 The model uses the latest complete verified component cycle in the repository:
@@ -49,6 +51,20 @@ streamlit run app.py
 ```
 
 Open `http://localhost:8501`.
+
+## Linear regression explanation
+
+The six-page PDF explains the model features, fuel encoding, ordinary
+least-squares equation, chronological train/test split, April 2026 holdout
+results, evaluation metrics, coefficients, app graphs, and limitations:
+
+[Download the linear regression explanation](output/pdf/MafutaPlan_Linear_Regression_Explanation.pdf)
+
+It can be rebuilt with:
+
+```bash
+python scripts/create_linear_regression_pdf.py
+```
 
 ## Rebuild artifacts
 
