@@ -1,4 +1,4 @@
-Fuel,Selected_Method,August_2026_Forecast,Empirical_Lower,Empirical_Upper,Selection_MAE,Selection_Points,Holdout_MAE,Holdout_RMSE,Holdout_Points,Baseline_MAE,Observed_Band_Containment
-Super Petrol,Previous-cycle baseline,214.03,211.806,230.947,2.143,18,4.243,8.201,10,4.243,0.80
-Diesel,Previous-cycle baseline,222.86,218.323,253.564,2.236,18,8.125,15.279,10,8.125,0.80
-Kerosene,Previous-cycle baseline,191.38,190.380,195.240,3.292,18,4.060,12.215,10,4.060,0.90
+Fuel,Model,Input_Cycle,Target_Cycle,Target_Retail_Price,Predicted_Retail_Price,Absolute_Error,Percentage_Error,MAE,RMSE
+Diesel,Multiple Linear Regression,2026-03-01,2026-04-01,196.630000,167.857747,28.772253,14.632687,15.410728,19.299255
+Kerosene,Multiple Linear Regression,2026-03-01,2026-04-01,152.780000,153.229972,0.449972,0.294523,15.410728,19.299255
+Super Petrol,Multiple Linear Regression,2026-03-01,2026-04-01,197.600000,180.590043,17.009957,8.608278,15.410728,19.299255

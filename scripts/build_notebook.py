@@ -1,167 +1,185 @@
-"""Generate the reader-facing, reproducible MafutaPlan analysis notebook."""
+"""Build and execute the final MafutaPlan analysis notebook."""
+
+from __future__ import annotations
 
 from pathlib import Path
 from textwrap import dedent
 
-import nbformat as nbf
+import nbformat
+from nbclient import NotebookClient
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "notebooks" / "FuelPriceAnalysis.ipynb"
 
 
-def md(text: str):
-    return nbf.v4.new_markdown_cell(dedent(text).strip())
+def markdown(text: str):
+    return nbformat.v4.new_markdown_cell(dedent(text).strip())
 
 
 def code(text: str):
-    return nbf.v4.new_code_cell(dedent(text).strip())
+    return nbformat.v4.new_code_cell(dedent(text).strip())
 
 
-notebook = nbf.v4.new_notebook()
-notebook["metadata"] = {
-    "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-    "language_info": {"name": "python", "version": "3.12"},
-}
-notebook["cells"] = [
-    md("""
-    # MafutaPlan: Nairobi Fuel-Price Reconstruction and Forecast Analysis
+def build_notebook():
+    notebook = nbformat.v4.new_notebook()
+    notebook.metadata.kernelspec = {
+        "display_name": "Python 3",
+        "language": "python",
+        "name": "python3",
+    }
+    notebook.metadata.language_info = {"name": "python", "version": "3"}
+    notebook.cells = [
+        markdown(
+            """
+            # MafutaPlan: Component-Based Multiple Linear Regression
 
-    ## tl;dr
+            **Project title:** Design and Implementation of a Component-Based
+            Fuel Price Prediction System Using Multiple Linear Regression in
+            Nairobi, Kenya
 
-    This notebook is the reproducible analytical companion to the BSc IT final project. It validates 55 monthly Nairobi price cycles, audits 33 reviewed component records from 11 official EPRA Annex cycles, proves that the component identity reconstructs every recorded retail price to rounding precision, and evaluates leakage-safe next-cycle forecasting methods. The price forecast and the cost reconstruction are intentionally separate: the former is statistical; the latter is regulated arithmetic.
-    """),
-    md("""
-    ## Context & Methods
+            This notebook keeps four ideas separate:
 
-    **Research question.** How can a source-backed information system explain, reconstruct and cautiously forecast Nairobi's regulated fuel prices without confusing landed product cost with the final pump price?
+            1. **Prediction:** pre-target components estimate the following cycle.
+            2. **Reconstruction:** same-cycle official components are added.
+            3. **Scenario analysis:** user assumptions are added deterministically.
+            4. **Fuel calculations:** prices are converted into budgets and journeys.
+            """
+        ),
+        code(
+            """
+            import sys
+            from pathlib import Path
 
-    **Scope.** Nairobi only; Super Petrol (PMS), Automotive Diesel (AGO) and Kerosene (IK/DPK).
+            ROOT = Path.cwd().resolve()
+            if ROOT.name == "notebooks":
+                ROOT = ROOT.parent
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
 
-    ### Key assumptions
+            import pandas as pd
+            from src.data import load_component_history, load_prediction_dataset
+            from src.modeling import JULY_2026_CYCLE, evaluate_latest_cycle
+            from src.pricing import reconstruction_audit
 
-    - Published EPRA values are maximum retail caps for their stated effective cycle.
-    - A next-cycle forecast may use only information known before that cycle.
-    - Stabilization is stored as a signed reconciliation adjustment because deficit/surplus signs are inconsistently displayed in scanned annexes.
-    - Missing or technically degraded annexes are not silently imputed as official values.
-    """),
-    code("""
-    from pathlib import Path
-    import sys
-    import pandas as pd
-    import matplotlib.pyplot as plt
+            components = load_component_history()
+            model_data = load_prediction_dataset()
+            evaluation = evaluate_latest_cycle(model_data)
+            """
+        ),
+        markdown(
+            """
+            ## Data integrity
 
-    ROOT = Path.cwd()
-    if not (ROOT / "src").exists():
-        ROOT = ROOT.parent
-    sys.path.insert(0, str(ROOT))
+            Every component row includes an official EPRA HTTPS source, a
+            verification status, and a reconstruction result. No missing component
+            is imputed. The model-ready table links each input cycle to the
+            following target cycle.
+            """
+        ),
+        code(
+            """
+            coverage = pd.DataFrame({
+                "Measure": [
+                    "Verified component rows",
+                    "Verified component cycles",
+                    "Model-ready rows",
+                    "Earliest input cycle",
+                    "Latest input cycle",
+                ],
+                "Value": [
+                    len(components),
+                    components["Effective_From"].nunique(),
+                    len(model_data),
+                    model_data["Input_Cycle"].min().date(),
+                    model_data["Input_Cycle"].max().date(),
+                ],
+            })
+            coverage
+            """
+        ),
+        code(
+            """
+            audit = reconstruction_audit(components)
+            audit[["Effective_From", "Fuel", "Retail_Price",
+                   "Calculated_Price", "Calculated_Error"]].tail(9)
+            """
+        ),
+        markdown(
+            """
+            ## Chronological multiple linear regression
 
-    from src.data import FUEL_COLUMNS, load_component_history, load_history
-    from src.hybrid import AGGREGATE_COMPONENTS, reconstruction_audit
-    from src.modeling import forecast_fuel
+            The pooled model uses landed cost, distribution and storage, margins,
+            stabilization adjustment, taxes and levies, plus encoded fuel type.
+            The latest complete target cycle is reserved as a chronological test.
+            """
+        ),
+        code(
+            """
+            summary = pd.DataFrame({
+                "Training start": [evaluation.training_start.date()],
+                "Training end": [evaluation.training_end.date()],
+                "Training rows": [evaluation.training_records],
+                "Test target": [evaluation.test_cycle.date()],
+                "Test rows": [evaluation.test_records],
+                "MAE (KSh/L)": [evaluation.mae],
+                "RMSE (KSh/L)": [evaluation.rmse],
+            })
+            summary
+            """
+        ),
+        code("evaluation.coefficients"),
+        code("evaluation.results"),
+        markdown(
+            """
+            ## July 2026 availability decision
 
-    pd.set_option("display.max_columns", 30)
-    """),
-    md("## Data\n\n### 1. Load the versioned research datasets"),
-    code("""
-    history = load_history()
-    components = load_component_history()
+            July prices must not be predicted from July components. The intended
+            input is June 2026. The reviewed component panel currently stops at
+            March 2026, so the notebook does not publish July predictions or
+            accuracy values. This is a data limitation, not a software failure.
+            """
+        ),
+        code(
+            """
+            july_rows = model_data.loc[model_data["Target_Cycle"].eq(JULY_2026_CYCLE)]
+            pd.DataFrame({
+                "Required target": ["July 2026"],
+                "Intended input": ["June 2026 components"],
+                "Verified July-input rows": [len(july_rows)],
+                "Prediction status": [
+                    "Blocked: verified June 2026 components are unavailable"
+                    if len(july_rows) != 3 else "Available"
+                ],
+            })
+            """
+        ),
+        markdown(
+            """
+            ## Interpretation
 
-    coverage = pd.DataFrame({
-        "Dataset": ["Nairobi monthly pump prices", "Reviewed EPRA component panel"],
-        "Rows": [len(history), len(components)],
-        "Start": [history["Effective_From"].min(), components["Effective_From"].min()],
-        "End": [history["Effective_To"].max(), components["Effective_To"].max()],
-        "Grain": ["one cycle", "one cycle × fuel"],
-    })
-    coverage
-    """),
-    md("### 2. Run data-quality and reconstruction checks"),
-    code("""
-    audit = reconstruction_audit(components)
-    quality = pd.Series({
-        "monthly_cycles": history["Cycle"].nunique(),
-        "history_duplicates": int(history["Cycle"].duplicated().sum()),
-        "component_cycles": components["Effective_From"].nunique(),
-        "component_rows": len(components),
-        "component_duplicates": int(components[["Effective_From", "Fuel"]].duplicated().sum()),
-        "max_abs_reconstruction_error_kes": float(audit["Calculated_Error"].abs().max()),
-        "official_pdf_coverage_pct": float(components["PDF_URL"].str.startswith("https://www.epra.go.ke/").mean() * 100),
-    }, name="Result")
-    quality.to_frame()
-    """),
-    md("## Results\n\n### 3. Reconstruct official pump prices from all cost groups"),
-    code("""
-    reconstruction_summary = (
-        audit.groupby("Fuel")
-        .agg(
-            cycles=("Effective_From", "nunique"),
-            mean_retail_price=("Retail_Price", "mean"),
-            maximum_absolute_error=("Calculated_Error", lambda values: values.abs().max()),
-        )
-        .round(2)
+            The small, discontinuous panel limits generalisation. The April 2026
+            holdout includes an abrupt regulatory price change, producing large
+            errors for petrol and diesel. Coefficients describe this fitted sample
+            and should not be interpreted as causal effects. MafutaPlan remains an
+            academic tool and does not replace EPRA.
+            """
+        ),
+    ]
+    return notebook
+
+
+def main() -> None:
+    notebook = build_notebook()
+    client = NotebookClient(
+        notebook,
+        timeout=120,
+        kernel_name="python3",
+        resources={"metadata": {"path": str(ROOT)}},
     )
-    reconstruction_summary
-    """),
-    md("### 4. Inspect the real landed-to-Nairobi cost mix"),
-    code("""
-    component_means = components.groupby("Fuel")[AGGREGATE_COMPONENTS].mean()
-    component_means.plot(kind="bar", stacked=True, figsize=(10, 5), color=["#ff7657", "#3978a8", "#e9a83a", "#8d6e63", "#0d7463"])
-    plt.title("Average reviewed Nairobi price composition by fuel")
-    plt.ylabel("Kenya shillings per litre")
-    plt.xlabel("")
-    plt.xticks(rotation=0)
-    plt.legend(title="Component", bbox_to_anchor=(1.02, 1), loc="upper left")
-    plt.tight_layout()
-    plt.show()
-    """),
-    md("### 5. Show component movement over reviewed EPRA cycles"),
-    code("""
-    petrol = components.loc[components["Fuel"].eq("Super Petrol")].set_index("Effective_From")
-    petrol[AGGREGATE_COMPONENTS].plot(figsize=(11, 5), marker="o")
-    plt.title("Super Petrol reviewed cost components")
-    plt.ylabel("Kenya shillings per litre")
-    plt.xlabel("Effective cycle")
-    plt.legend(title="Component", bbox_to_anchor=(1.02, 1), loc="upper left")
-    plt.tight_layout()
-    plt.show()
-    """),
-    md("### 6. Evaluate leakage-safe next-cycle forecasting"),
-    code("""
-    forecast_rows = []
-    for fuel, column in FUEL_COLUMNS.items():
-        result = forecast_fuel(history, column)
-        forecast_rows.append({
-            "Fuel": fuel,
-            "Selected method": result.model_name,
-            "Next-cycle estimate": result.prediction,
-            "Holdout MAE": result.mae,
-            "Holdout RMSE": result.rmse,
-            "Baseline MAE": result.baseline_mae,
-            "Validation cycles": result.validation_points,
-        })
-    forecast_results = pd.DataFrame(forecast_rows).set_index("Fuel").round(2)
-    forecast_results
-    """),
-    md("""
-    ### 7. Interpret the two model layers
+    executed = client.execute()
+    nbformat.write(executed, OUTPUT)
+    print(f"Wrote {OUTPUT.relative_to(ROOT)}")
 
-    - **Reconstruction layer:** deterministic. It adds landed cost, Mombasa-to-Nairobi distribution/storage, regulated margins, taxes/levies and signed stabilization. Its purpose is explanation and audit.
-    - **Forecast layer:** statistical. Candidate regressors and tree models are compared with the previous-cycle benchmark using expanding-window selection and a final ten-cycle holdout.
-    - **Scenario layer:** user-controlled. It changes declared component inputs and therefore must not be described as an EPRA forecast.
 
-    The reviewed component panel is currently too short and discontinuous for a credible standalone production regression of future landed cost. That limitation is reported rather than hidden.
-    """),
-    md("""
-    ## Takeaways
-
-    1. The Nairobi pump price is not simply crude oil or landed product cost; inland distribution, losses, margins, taxes, levies and stabilization materially affect the final cap.
-    2. All 33 reviewed component records reconstruct their official retail price with a maximum absolute rounding error of KSh 0.00 per litre after signed reconciliation.
-    3. Regression is evaluated, but a simpler previous-cycle baseline may legitimately win when it performs better out of sample.
-    4. The strongest degree-project contribution is the integrated, source-backed system: acquisition audit, data validation, regulated-price reconstruction, leakage-safe forecast comparison, scenarios, calculators and a usable Streamlit interface.
-    5. Future work should complete a continuous 36+ cycle Annex panel, add lagged exchange-rate and international refined-product benchmarks, and re-evaluate landed-cost forecasting after the data threshold is met.
-    """),
-]
-
-OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-nbf.write(notebook, OUTPUT)
-print(f"Wrote {OUTPUT}")
+if __name__ == "__main__":
+    main()

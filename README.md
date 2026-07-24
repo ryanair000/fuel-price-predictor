@@ -1,78 +1,134 @@
 # MafutaPlan
 
-MafutaPlan is a final-year BSc Information Technology project for analysing and planning around regulated fuel prices in Nairobi, Kenya.
+**Project title:** Design and Implementation of a Component-Based Fuel Price
+Prediction System Using Multiple Linear Regression in Nairobi, Kenya
 
-The system uses official EPRA records to:
+MafutaPlan is a final-year BSc Information Technology project for Nairobi
+transport operators and small transport businesses that need fuel-price
+information for budgeting and journey-cost planning.
 
-- display Nairobi maximum retail prices;
-- explain the fuel-price build-up;
-- reconstruct published prices from cost components;
-- compare next-cycle forecasting methods;
-- run transparent cost scenarios; and
-- calculate purchase and journey costs.
+The application supports four clearly separated functions:
 
-## Project scope
+- **Prediction:** pooled multiple linear regression using pre-target components
+  and encoded fuel type.
+- **Reconstruction:** deterministic addition of five known component groups from
+  the same historical cycle.
+- **Scenario analysis:** deterministic what-if changes to reviewed components.
+- **Fuel calculations:** purchase, budget, and journey-cost formulas.
 
-- **Location:** Nairobi
-- **Products:** Super Petrol, Diesel and Kerosene
-- **Data source:** EPRA price releases, component tables and supporting first-party records
-- **Forecasting:** previous-cycle baseline, linear regression, ridge regression, random forest and gradient boosting
-- **Evaluation:** expanding-window model selection followed by a ten-cycle holdout
+## July 2026 target and data limitation
 
-The forecast is an academic estimate. It is not an EPRA announcement and should not be treated as financial advice.
+The final target is the July 2026 Nairobi maximum retail price for Super
+Petrol, Diesel, and Kerosene. July components are never used to predict July.
+The intended design is:
+
+```text
+Verified June 2026 components
+              ↓
+Multiple linear regression
+              ↓
+Predicted July 2026 price
+              ↓
+Comparison with official July price
+```
+
+The repository currently has no verified June 2026 component record. It
+therefore does **not** publish July predictions or fabricated July accuracy.
+The app reports this availability decision clearly. The implemented
+architecture can generate the final results when all three verified June rows
+are added.
+
+Official July 2026 evaluation prices:
+
+| Fuel | Official Nairobi maximum |
+|---|---:|
+| Super Petrol | KSh 214.03/L |
+| Diesel | KSh 222.86/L |
+| Kerosene | KSh 191.38/L |
+
+## Model
+
+The only machine-learning estimator is `LinearRegression`.
+
+Independent variables:
+
+- `Landed_Cost`
+- `Distribution_Storage`
+- `Margins`
+- `Stabilization_Adjustment`
+- `Taxes_Levies`
+- encoded `Fuel`
+
+Target variable:
+
+- `Target_Retail_Price`
+
+The model-ready dataset pairs each verified input cycle with the following
+retail-price target cycle. Chronological evaluation trains on 30 rows with
+targets from September 2024 to March 2026 and tests on three April 2026 rows.
+
+## Application pages
+
+1. Home
+2. July 2026 Prediction
+3. Factors Affecting Fuel Price
+4. Price Reconstruction
+5. Fuel Calculator
+6. Data and Methodology
+
+The primary persona is Brian, a Nairobi ride-hailing driver. EPRA is the
+regulator, authoritative data source, and project stakeholder—not the client.
+MafutaPlan is an academic tool and does not replace official EPRA notices.
 
 ## Repository structure
 
 ```text
 app.py                  Streamlit application
-src/                    Data validation, modelling and calculations
-data/                   Versioned project datasets and source register
-tests/                  Automated project tests
-notebooks/              Analysis notebook
-scripts/                Data, notebook and report build tools
+src/                    Validation, regression, pricing, and calculator logic
+data/                   Verified datasets, source register, and audit records
+tests/                  Revised unittest suite
+notebooks/              Executed analysis notebook
+scripts/                Dataset, notebook, evidence, and report builders
 docs/                   Final project report
-appendices/              Submission appendices
-outputs/                 Charts and diagrams used in the report
+appendices/             Data dictionary, metrics, test cases, and project records
+outputs/charts/          Final result charts
+outputs/diagrams/        Architecture, conceptual, and use-case diagrams
+outputs/screenshots/     Final page screenshots after manual verification
 ```
 
-## Run the application
+## Run
 
 Python 3.10 or later is recommended.
 
 ```bash
 python -m venv .venv
-```
-
-Activate the environment, then install the runtime dependencies:
-
-```bash
 python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
 Open `http://localhost:8501`.
 
-## Research and report tools
-
-The optional data-extraction, notebook and report scripts use additional packages:
+## Rebuild academic artifacts
 
 ```bash
 python -m pip install -r requirements-dev.txt
-```
-
-Examples:
-
-```bash
-python scripts/inventory_epra_component_sources.py
-python scripts/extract_epra_annex_ocr.py
-python scripts/build_component_history.py
+python scripts/build_model_dataset.py
 python scripts/build_notebook.py
 python scripts/build_report.py
 ```
 
-The OCR workflow also requires Tesseract OCR to be installed separately.
+The optional source-inventory and OCR audit scripts preserve official-evidence
+work:
 
-## Verify the project
+```bash
+python scripts/inventory_epra_component_sources.py
+python scripts/extract_epra_annex_ocr.py
+python scripts/audit_epra_pump_prices.py
+```
+
+The OCR script additionally requires Tesseract OCR.
+
+## Verify
 
 ```bash
 python -m unittest discover -s tests -v
@@ -80,24 +136,14 @@ python -m compileall app.py src scripts tests
 python -m pip check
 ```
 
-## Main datasets
-
-| File | Purpose |
-|---|---|
-| `data/nairobi_price_history.csv` | Continuous monthly Nairobi price history |
-| `data/current_nairobi_price.csv` | Official price record used by the app |
-| `data/price_components.csv` | Detailed component example for the price build-up |
-| `data/nairobi_component_history.csv` | Reviewed multi-cycle component panel |
-| `data/price_revisions_2026.csv` | Audit trail for revised price announcements |
-| `data/sources.csv` | Source register and provenance |
-
-See `DATA_PROVENANCE.md` for the data refresh and validation procedure.
-
 ## Limitations
 
-- The monthly sample is small and sensitive to policy changes.
-- The component panel is shorter than the retail-price history.
-- Taxes, stabilization decisions, procurement timing and market shocks can cause structural breaks.
-- Published values are maximum regulatory prices, not guaranteed station-level selling prices.
+- The component panel has 33 fuel-cycle rows across 11 discontinuous cycles.
+- June 2026 components are not verified in the repository.
+- Regulatory, tax, subsidy, and stabilization decisions can change abruptly.
+- Small-sample coefficients are unstable and do not prove causation.
+- Station prices may be below the regulatory maximum.
+- The app is an academic prediction and planning tool, not an EPRA service.
 
-**Author:** Ryan Alfred Nyambati — SCT222-0195/2021, Jomo Kenyatta University of Agriculture and Technology.
+**Author:** Ryan Alfred Nyambati — SCT222-0195/2021, Jomo Kenyatta
+University of Agriculture and Technology.

@@ -1,6 +1,10 @@
-Cycle,Effective_Start,Effective_End,Town,Super_Petrol,Diesel,Kerosene,Source_ID,Revision_Note
-2022-01-01,2022-01-15,2022-02-14,Nairobi,129.72,110.60,103.54,EPRA_STATS_2022,Final published cycle value
-2023-05-01,2023-05-15,2023-06-14,Nairobi,182.70,168.40,161.13,EPRA_STATS_2023,Corrected against official EPRA statistics table
-2026-04-01,2026-04-16,2026-05-14,Nairobi,197.60,196.63,152.78,EPRA_APR16_2026,Final revised values; original retained in revision audit
-2026-05-01,2026-05-19,2026-06-14,Nairobi,214.25,232.86,191.38,EPRA_MAY19_2026,Final revised values; original retained in revision audit
-2026-07-01,2026-07-15,2026-08-14,Nairobi,214.03,222.86,191.38,EPRA_JUL15_2026,Current final values
+Input_Cycle,Target_Cycle,Fuel,Landed_Cost,Distribution_Storage,Margins,Stabilization_Adjustment,Taxes_Levies,Target_Retail_Price,Source_ID,Verification_Status
+2024-08-01,2024-09-01,Diesel,90.98,3.75,12.36,-5.20,69.71,171.60,EPRA_COMPONENT_2024_08,Reviewed and reconciled
+2024-08-01,2024-09-01,Kerosene,93.04,3.72,12.36,-3.83,56.46,158.32,EPRA_COMPONENT_2024_08,Reviewed and reconciled
+2024-08-01,2024-09-01,Super Petrol,93.01,4.09,12.39,-3.40,82.75,188.84,EPRA_COMPONENT_2024_08,Reviewed and reconciled
+2024-10-01,2024-11-01,Diesel,83.08,3.72,12.36,0.00,68.90,168.06,EPRA_COMPONENT_2024_10,Reviewed and reconciled
+2024-10-01,2024-11-01,Kerosene,80.80,3.67,12.36,0.01,54.55,151.39,EPRA_COMPONENT_2024_10,Reviewed and reconciled
+2024-10-01,2024-11-01,Super Petrol,83.02,4.03,12.39,0.00,81.22,180.66,EPRA_COMPONENT_2024_10,Reviewed and reconciled
+2024-11-01,2024-12-01,Diesel,79.54,3.71,12.36,3.69,68.76,165.06,EPRA_COMPONENT_2024_11,Reviewed and reconciled
+2024-11-01,2024-12-01,Kerosene,83.95,3.68,12.36,-3.29,54.69,148.39,EPRA_COMPONENT_2024_11,Reviewed and reconciled
+2024-11-01,2024-12-01,Super Petrol,83.47,4.03,12.39,-0.46,81.23,176.29,EPRA_COMPONENT_2024_11,Reviewed and reconciled

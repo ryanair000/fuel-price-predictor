@@ -1,22 +1,27 @@
 Test_ID,Area,Condition,Expected_Result,Status
-TC01,Project files,Load all required data files,Every file exists,Pass
-TC02,Geographical scope,Inspect official and historical town fields,Only Nairobi is accepted,Pass
-TC03,History integrity,Validate monthly cycle index,55 unique continuous cycles in chronological order,Pass
-TC04,Effective periods,Compare effective start and end dates,Every start is on or before its end,Pass
-TC05,Provenance,Resolve every historical Source_ID,Every identifier maps to registered HTTPS evidence,Pass
-TC06,Official history,Check selected official observations,Stored values match recorded EPRA evidence,Pass
-TC07,Current record,Check July 2026 cycle and prices,214.03 222.86 and 191.38 KES/L,Pass
-TC08,Price components,Sum detailed rows by fuel,Totals reconcile to 177.32 162.91 and 146.93 KES/L,Pass
-TC09,Feature leakage,Inspect lags and rolling mean,Only values before the target cycle are used,Pass
-TC10,Litres cost,Calculate 20 L at 214.03 KES/L,Result is 4280.60 KES,Pass
-TC11,Budget litres,Calculate 5000 KES at 222.86 KES/L,Result is approximately 22.44 L,Pass
-TC12,Journey calculation,Apply distance efficiency return and traffic allowance,Allowance increases litres and cost correctly,Pass
-TC13,Input validation,Submit zero or negative price distance or efficiency,Invalid values are rejected,Pass
-TC14,Forecast output,Run forecasts for all three fuels,Finite deterministic estimates and metrics are returned,Pass
-TC15,Forecast horizon,Inspect the next Cycle,Target is August 2026,Pass
-TC16,Evaluation separation,Compare selection and holdout dates,The final ten cycles are not used for selection,Pass
-TC17,Forecast chart,Build observed-plus-forecast chart,Last actual connects to August forecast,Pass
-TC18,Feature whitelist,Inspect modelling features,Same-cycle external economic values are excluded,Pass
-TC19,Component panel,Load reviewed multi-cycle Annex data,33 rows across 11 cycles and three fuels are present,Pass
-TC20,Price reconstruction,Recalculate every reviewed component row,Maximum absolute error is no more than KES 0.02/L,Pass
-TC21,Cost scenario,Change landed cost and tax inputs,Only declared inputs change the scenario result,Pass
+TC01,Required files,Check final deliverables exist,All present,Pass
+TC02,Schema,Load component dataset,Required columns accepted,Pass
+TC03,Missing values,Blank a required field,Rejected,Pass
+TC04,Duplicates,Repeat a fuel-cycle row,Rejected,Pass
+TC05,Dates,End date before start,Rejected,Pass
+TC06,Sources,Use unknown Source_ID,Rejected,Pass
+TC07,Links,Use non-HTTPS URL,Rejected,Pass
+TC08,Fuel,Use unsupported fuel,Rejected,Pass
+TC09,Arithmetic,Sum five components,Matches reconstruction,Pass
+TC10,Reconstruction,Compare calculated and official price,Within KSh 0.02,Pass
+TC11,Ordering,Target not after input,Rejected,Pass
+TC12,Leakage,Inspect training end,Before July 2026,Pass
+TC13,Training,Fit linear regression,Model fitted,Pass
+TC14,Coefficients,Inspect fitted terms,All finite,Pass
+TC15,Predictions,Predict complete test cycle,All three fuels,Pass
+TC16,Results,Build actual-versus-predicted data,Three results,Pass
+TC17,MAE,Recalculate absolute error mean,Matches model output,Pass
+TC18,RMSE,Recalculate squared error root,Matches model output,Pass
+TC19,July gate,Request July without June inputs,Blocked clearly,Pass
+TC20,Purchase,Calculate 20 L at KSh 214.03,"KSh 4,280.60",Pass
+TC21,Budget,"Calculate litres for KSh 4,280.60",20.00 L,Pass
+TC22,Journey,Apply 10% contingency,Allowance included,Pass
+TC23,Invalid calculator,Use zero or negative input,Rejected,Pass
+TC24,Official prices,Load July evaluation values,Exact three values,Pass
+TC25,Streamlit loading,Load cached project data,All frames returned,Pass
+TC26,Scenario,Change declared assumptions,Only declared inputs change,Pass

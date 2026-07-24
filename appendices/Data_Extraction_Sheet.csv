@@ -1,19 +1,12 @@
 Field,Type,Unit,Meaning,Validation
-Cycle,Date,month,"Canonical monthly cycle label",Unique and continuous
-Effective_Start,Date,day,"Date final prevailing price started",Not after Effective_End
-Effective_End,Date,day,"Date final prevailing price ended",Not before Effective_Start
-Town,Text,,"Geographical market",Must equal Nairobi
-Super_Petrol,Decimal,KES/litre,"EPRA maximum retail pump price",Positive
-Diesel,Decimal,KES/litre,"EPRA maximum retail pump price",Positive
-Kerosene,Decimal,KES/litre,"EPRA maximum retail pump price",Positive
-Source_ID,Text,,"Foreign key to source register",Must resolve to HTTPS evidence
-Revision_Note,Text,,"How revisions were handled",Non-empty
-Fuel,Text,,"PMS AGO or Kerosene product in the component panel",One of three allowed products
-Landed_Cost,Decimal,KES/litre,"Weighted average imported refined-product cost",Non-negative and source-linked
-Distribution_Storage,Decimal,KES/litre,"Mombasa-to-Nairobi pipeline losses depot delivery and storage",Non-negative
-Margins,Decimal,KES/litre,"Approved wholesale and retail margins",Non-negative
-Taxes_Levies,Decimal,KES/litre,"Excise VAT and applicable statutory levies",Non-negative
-Stabilization_Adjustment,Decimal,KES/litre,"Signed deficit or surplus reconciliation adjustment",May be positive negative or zero
-Retail_Price,Decimal,KES/litre,"Official EPRA Nairobi maximum price for the component cycle",Must equal reconstructed price within KES 0.02
-PDF_URL,Text,,"Exact official EPRA Annex evidence",Must be an EPRA HTTPS URL
-Verification_Status,Text,,"Manual review and arithmetic reconciliation state",Must be explicit
+Input_Cycle,Date,month,Cycle supplying model components,Must precede target
+Target_Cycle,Date,month,Following retail-price cycle,Must follow input
+Fuel,Text,,"Super Petrol, Diesel or Kerosene",Allowed values only
+Landed_Cost,Decimal,KSh/L,Aggregate imported-product landed value,Required
+Distribution_Storage,Decimal,KSh/L,Aggregate distribution and storage costs,Required
+Margins,Decimal,KSh/L,Aggregate approved margins,Required
+Stabilization_Adjustment,Decimal,KSh/L,Signed stabilization or reconciliation,Required
+Taxes_Levies,Decimal,KSh/L,Aggregate taxes and statutory levies,Required
+Target_Retail_Price,Decimal,KSh/L,Following-cycle Nairobi maximum retail price,Positive
+Source_ID,Text,,Foreign key to official source register,Registered HTTPS source
+Verification_Status,Text,,Evidence review state,Non-blank
