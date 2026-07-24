@@ -297,7 +297,7 @@ def build_figures(components: pd.DataFrame, evaluation) -> None:
             "Verified component\ndataset",
             "Cleaning and\nvalidation",
             "Multiple linear\nregression",
-            "July 2026\navailability gate",
+            "March-to-April\nforecast",
             "Actual-versus-\npredicted evaluation",
             "Streamlit\ninterface",
         ],
@@ -346,7 +346,7 @@ def make_flow_diagram(path: Path, labels: list[str], title: str) -> None:
 
 def make_use_case_diagram(path: Path) -> None:
     use_cases = [
-        "View July prediction status",
+        "View April prediction",
         "View factors affecting price",
         "Reconstruct historical price",
         "Calculate fuel purchase cost",
@@ -484,11 +484,10 @@ def build_report(
         f"targets from {evaluation.training_start:%B %Y} to "
         f"{evaluation.training_end:%B %Y} and is evaluated on three April 2026 records. "
         f"The holdout MAE is {evaluation.mae:.2f} KSh/L and RMSE is "
-        f"{evaluation.rmse:.2f} KSh/L. The intended final design is June 2026 "
-        "components to July 2026 prices; however, verified June components are not "
-        "available in the repository. July predictions are therefore not published, "
-        "preventing target leakage and fabricated accuracy. The Streamlit system "
-        "still provides source-linked reconstruction, factor explanation, scenarios, "
+        f"{evaluation.rmse:.2f} KSh/L. The latest complete component cycle is "
+        "March 2026, which is used to predict the immediately following April "
+        "2026 retail-price cycle. The Streamlit system also provides live EPRA "
+        "retail-price display, source-linked reconstruction, factor explanation, scenarios, "
         "and budget and journey calculators.",
     )
     add_para(
@@ -551,7 +550,7 @@ def build_report(
     add_para(
         doc,
         "To design and implement a component-based machine-learning system using "
-        "multiple linear regression to predict July 2026 maximum retail fuel prices "
+        "multiple linear regression to predict the next-cycle maximum retail fuel prices "
         "in Nairobi and support fuel-budget planning.",
     )
     add_heading(doc, "1.4 Specific Objectives", 2)
@@ -561,8 +560,8 @@ def build_report(
             "To collect and validate historical Nairobi fuel-price component data from official sources.",
             "To analyse how landed cost, distribution and storage, margins, stabilization, taxes and levies affect retail fuel prices.",
             "To develop a multiple linear regression model using verified pre-target component information.",
-            "To predict July 2026 prices for Super Petrol, Diesel and Kerosene.",
-            "To compare predicted July prices with official July prices.",
+            "To predict April 2026 prices from March 2026 components for Super Petrol, Diesel and Kerosene.",
+            "To compare predicted April prices with official April prices.",
             "To implement a Streamlit application for prediction, price explanation, reconstruction, and fuel-cost planning.",
         ],
     )
@@ -572,7 +571,7 @@ def build_report(
         [
             "Which cost components affect Nairobi retail fuel prices?",
             "What relationship exists between fuel-price cost components and final retail prices?",
-            "How accurately can multiple linear regression predict July 2026 fuel prices?",
+            "How accurately can multiple linear regression predict the held-out April 2026 fuel prices?",
             "How can the system support budgeting and journey-cost planning for Nairobi transport users?",
         ],
     )
@@ -587,7 +586,7 @@ def build_report(
     add_para(
         doc,
         "The primary persona is Brian, a Nairobi ride-hailing driver. Brian views "
-        "the July prediction status, examines price factors, estimates weekly fuel "
+        "the April prediction, examines price factors, estimates weekly fuel "
         "expenses, calculates journey costs, and plans his transport budget.",
     )
     add_heading(doc, "1.7 Significance", 2)
@@ -603,7 +602,7 @@ def build_report(
     add_bullets(
         doc,
         [
-            "July components cannot be used to predict July without leakage.",
+            "Each prediction must use components from the immediately preceding cycle.",
             "The verified component panel is small and discontinuous.",
             "Official regulatory, tax, and stabilization decisions can change abruptly.",
             "The application does not replace EPRA.",
@@ -657,7 +656,7 @@ def build_report(
         doc,
         "Random train-test splitting can allow later regulatory regimes to influence "
         "earlier predictions. MafutaPlan orders records chronologically and reserves "
-        "the latest complete target cycle. July 2026 is never included in training. "
+        "the latest complete target cycle, April 2026, for holdout evaluation. "
         "MAE reports the average absolute error and RMSE gives greater weight to "
         "larger errors.",
     )
@@ -728,8 +727,8 @@ def build_report(
         f"Training targets run from {evaluation.training_start:%B %Y} to "
         f"{evaluation.training_end:%B %Y} using {evaluation.training_records} rows. "
         f"The chronological test target is {evaluation.test_cycle:%B %Y} with "
-        f"{evaluation.test_records} rows. July 2026 is outside training and is "
-        "reserved for final evaluation only when verified June component inputs exist.",
+        f"{evaluation.test_records} rows. Its inputs are the latest complete "
+        "component records from March 2026.",
     )
     add_heading(doc, "3.6 Separation of Modules", 2)
     add_table(
@@ -747,7 +746,7 @@ def build_report(
     add_figure(
         doc,
         DIAGRAMS / "system_architecture_diagram.png",
-        "Figure 3.2: MafutaPlan system architecture and July availability gate",
+        "Figure 3.2: MafutaPlan system architecture and March-to-April forecast",
     )
     add_heading(doc, "3.8 Use Cases", 2)
     add_figure(
@@ -763,7 +762,7 @@ def build_report(
     add_para(
         doc,
         "The implementation uses Python, pandas, scikit-learn, and Streamlit. "
-        "The application has six pages: Home, July 2026 Prediction, Factors "
+        "The application has six pages: Home, Fuel Price Prediction, Factors "
         "Affecting Fuel Price, Price Reconstruction, Fuel Calculator, and Data and "
         "Methodology. The model code directly creates the design matrix, fits one "
         "LinearRegression estimator, and reports coefficients and chronological "
@@ -824,25 +823,26 @@ def build_report(
         CHARTS / "figure_4_1_actual_vs_predicted.png",
         "Figure 4.2: Actual versus predicted April 2026 holdout prices",
     )
-    add_heading(doc, "4.5 July 2026 Final Evaluation Status", 2)
-    official_row = official.iloc[0]
+    add_heading(doc, "4.5 April 2026 Prediction Results", 2)
     add_table(
         doc,
-        ["Fuel", "Official July price", "Prediction", "Error"],
+        ["Fuel", "Official April price", "Prediction", "Absolute error"],
         [
-            ["Super Petrol", f"{float(official_row.Super_Petrol):.2f}", "Unavailable", "Unavailable"],
-            ["Diesel", f"{float(official_row.Diesel):.2f}", "Unavailable", "Unavailable"],
-            ["Kerosene", f"{float(official_row.Kerosene):.2f}", "Unavailable", "Unavailable"],
+            [
+                row.Fuel,
+                f"{float(row.Target_Retail_Price):.2f}",
+                f"{float(row.Predicted_Retail_Price):.2f}",
+                f"{float(row.Absolute_Error):.2f}",
+            ]
+            for row in evaluation.results.itertuples()
         ],
         [1.7, 1.6, 1.6, 1.6],
     )
     add_para(
         doc,
-        "Verified June 2026 component inputs are absent. July predictions, "
-        "absolute errors, percentage errors, MAE, and RMSE are therefore not "
-        "claimed. July official values are retained only as final evaluation values. "
-        "Using July components would be target leakage; substituting March components "
-        "would change the one-cycle-ahead horizon without evidence.",
+        "March 2026 is the latest complete verified component cycle. The model "
+        "uses those inputs to predict the immediately following April 2026 prices. "
+        "April is excluded from training and used only for chronological evaluation.",
     )
     doc.add_page_break()
     add_heading(doc, "CHAPTER FIVE: SUMMARY, CONCLUSIONS AND RECOMMENDATIONS", 1)
@@ -857,10 +857,9 @@ def build_report(
     add_heading(doc, "5.2 Conclusions", 2)
     add_para(
         doc,
-        "The architecture is valid and explainable, but the available evidence is "
-        "insufficient for a defensible July 2026 prediction. The high April holdout "
-        "error and missing June inputs show why verified data and clear limitations "
-        "are more important than manufacturing a successful forecast. The system's "
+        "The architecture is valid and explainable. The high April holdout "
+        "error shows why verified data, chronological evaluation, and clear "
+        "limitations are important. The system's "
         "practical value also comes from price explanation, reconstruction, and "
         "transport budgeting.",
     )
@@ -868,9 +867,8 @@ def build_report(
     add_numbered(
         doc,
         [
-            "Obtain and verify the official June 2026 component annex before generating July predictions.",
             "Expand the component panel with continuous official cycles without interpolation.",
-            "Retain chronological evaluation and keep July outside training.",
+            "Retain chronological evaluation with each target outside training.",
             "Treat stabilization and tax decisions as policy-sensitive limitations.",
             "Conduct structured usability testing with Nairobi transport operators.",
             "Refresh official sources and revision records without overwriting audit history.",
@@ -914,8 +912,8 @@ def build_report(
         [
             "Install runtime dependencies with python -m pip install -r requirements.txt.",
             "Start the application with streamlit run app.py.",
-            "Use Home for scope, users, persona, and official July evaluation values.",
-            "Use July 2026 Prediction to inspect the input-availability decision.",
+            "Use Home for scope, users, persona, and the live EPRA retail-price display.",
+            "Use Fuel Price Prediction to inspect the March-to-April estimate and error.",
             "Use Factors Affecting Fuel Price for component shares and deterministic scenarios.",
             "Use Price Reconstruction to reproduce a verified historical price and open its source.",
             "Use Fuel Calculator for purchase, budget, and journey calculations.",
@@ -939,8 +937,8 @@ def build_report(
         doc,
         "The verified component cycles are August, October, November, and December "
         "2024; February, June, July, and August 2025; and January, February, and "
-        "March 2026. Other months, including June 2026, are not included as verified "
-        "component records. No missing record has been interpolated.",
+        "March 2026. Other months are not included as verified component records. "
+        "No missing record has been interpolated.",
     )
     return doc
 

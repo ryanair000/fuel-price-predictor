@@ -58,7 +58,7 @@ def build_notebook():
 
             import pandas as pd
             from src.data import load_component_history, load_prediction_dataset
-            from src.modeling import JULY_2026_CYCLE, evaluate_latest_cycle
+            from src.modeling import evaluate_latest_cycle
             from src.pricing import reconstruction_audit
 
             components = load_component_history()
@@ -131,26 +131,19 @@ def build_notebook():
         code("evaluation.results"),
         markdown(
             """
-            ## July 2026 availability decision
+            ## Latest one-cycle-ahead prediction
 
-            July prices must not be predicted from July components. The intended
-            input is June 2026. The reviewed component panel currently stops at
-            March 2026, so the notebook does not publish July predictions or
-            accuracy values. This is a data limitation, not a software failure.
+            The most recent complete component cycle is March 2026. It predicts
+            the immediately following April 2026 retail-price cycle, which is
+            reserved as the chronological holdout.
             """
         ),
         code(
             """
-            july_rows = model_data.loc[model_data["Target_Cycle"].eq(JULY_2026_CYCLE)]
-            pd.DataFrame({
-                "Required target": ["July 2026"],
-                "Intended input": ["June 2026 components"],
-                "Verified July-input rows": [len(july_rows)],
-                "Prediction status": [
-                    "Blocked: verified June 2026 components are unavailable"
-                    if len(july_rows) != 3 else "Available"
-                ],
-            })
+            evaluation.results[
+                ["Input_Cycle", "Target_Cycle", "Fuel", "Target_Retail_Price",
+                 "Predicted_Retail_Price", "Absolute_Error", "Percentage_Error"]
+            ]
             """
         ),
         markdown(

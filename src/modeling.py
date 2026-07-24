@@ -17,11 +17,6 @@ COMPONENT_FEATURES = [
 FUEL_EFFECT_COLUMNS = ["Fuel_Diesel", "Fuel_Kerosene"]
 MODEL_FEATURES = [*COMPONENT_FEATURES, *FUEL_EFFECT_COLUMNS]
 TARGET_COLUMN = "Target_Retail_Price"
-JULY_2026_CYCLE = pd.Timestamp("2026-07-01")
-
-
-class DataAvailabilityError(ValueError):
-    """Raised when verified pre-target inputs are not available."""
 
 
 @dataclass(frozen=True)
@@ -105,28 +100,3 @@ def evaluate_latest_cycle(frame: pd.DataFrame) -> ModelEvaluation:
         mae=float(mean_absolute_error(results[TARGET_COLUMN], predictions)),
         rmse=float(np.sqrt(mean_squared_error(results[TARGET_COLUMN], predictions))),
     )
-
-
-def predict_for_cycle(
-    model: LinearRegression,
-    frame: pd.DataFrame,
-    target_cycle: pd.Timestamp,
-) -> pd.DataFrame:
-    target = pd.Timestamp(target_cycle)
-    inputs = frame.loc[frame["Target_Cycle"].eq(target)].copy()
-    if set(inputs["Fuel"]) != {"Super Petrol", "Diesel", "Kerosene"}:
-        raise DataAvailabilityError(
-            f"Verified pre-target component inputs are unavailable for "
-            f"{target:%B %Y}."
-        )
-    inputs["Predicted_Retail_Price"] = model.predict(design_matrix(inputs))
-    return inputs[
-        ["Input_Cycle", "Target_Cycle", "Fuel", "Predicted_Retail_Price"]
-    ].reset_index(drop=True)
-
-
-def predict_july_2026(
-    model: LinearRegression,
-    frame: pd.DataFrame,
-) -> pd.DataFrame:
-    return predict_for_cycle(model, frame, JULY_2026_CYCLE)

@@ -2,90 +2,57 @@
 
 ## Scope
 
-The project records Nairobi maximum retail prices and verified component
-records for Super Petrol, Diesel, and Kerosene. Prices are regulatory maxima
-for stated effective periods, not guaranteed station-level selling prices.
+The project records Nairobi maximum retail prices and verified components for
+Super Petrol, Diesel, and Kerosene. Prices are regulatory maxima for stated
+effective periods, not guaranteed station prices.
 
-## Source hierarchy
+## Sources
 
-1. EPRA press releases, annex tables, formula pages, price tables, and official
-   company announcements.
-2. Kenya government publications used only for independent cross-checking.
-3. No third-party price series is treated as authoritative.
-
-Every `Source_ID` must resolve to an HTTPS URL in `data/sources.csv`.
-Component-history rows also retain the source title, exact PDF link,
-verification status, quality note, reconstructed price, and reconstruction
-error.
+EPRA press releases, annex tables, formula pages, and public price tables are
+the authoritative sources. Every `Source_ID` resolves to an HTTPS URL in
+`data/sources.csv`. Component rows retain their exact PDF link, verification
+status, quality note, reconstructed price, and reconstruction error.
 
 ## Dataset roles
 
-- `data/nairobi_component_history.csv` contains same-cycle official component
-  records used for reconstruction and as the source for model inputs.
-- `data/component_prediction_dataset.csv` pairs each verified input cycle with
-  the following retail-price target cycle.
-- `data/nairobi_price_history.csv` supplies verified following-cycle targets.
-- `data/current_nairobi_price.csv` contains official July 2026 evaluation
-  values.
-- `data/price_revisions_2026.csv` preserves revised announcements.
-- The source inventory, OCR audit, and live-table comparison files are retained
-  as evidence and audit records.
+- `data/nairobi_component_history.csv`: verified component records.
+- `data/component_prediction_dataset.csv`: each input cycle paired with its
+  following retail-price target cycle.
+- `data/nairobi_price_history.csv`: verified following-cycle targets.
+- `data/current_nairobi_price.csv`: the official July 2026 local snapshot.
+- `data/price_revisions_2026.csv`: preserved revised announcements.
 
-## Component aggregation
+The five non-overlapping model groups are landed cost, distribution and
+storage, margins, stabilization adjustment, and taxes and levies.
 
-The five model groups are `Landed_Cost`, `Distribution_Storage`, `Margins`,
-`Stabilization_Adjustment`, and `Taxes_Levies`. They aggregate detailed
-official cost lines. Detailed subcomponents are not added to the same model,
-which avoids double-counting.
+## Forecast rule
 
-## One-cycle-ahead rule
-
-For each model record:
+Each model record follows:
 
 ```text
-input-cycle components → following target-cycle retail price
+input-cycle components -> following-cycle retail price
 ```
 
-The model target is `Target_Retail_Price`. July 2026 official prices are not
-training inputs. A defensible July run requires verified June 2026 components
-for all three fuels.
+The latest complete component cycle is March 2026, so the current forecast
+uses March inputs for the immediately following April 2026 target. April is
+held out of training and used to measure prediction error.
 
-## Known gap and leakage control
+The Home page separately reads observed Nairobi retail prices from EPRA's
+public pump-price table. The response is cached for one hour and displays its
+effective period and retrieval time. Live retail prices are not inserted into
+the component model.
 
-The reviewed component panel currently ends with the March 2026 input cycle.
-June 2026 component rows are not verified in the repository. The project
-therefore blocks July prediction generation. It does not:
+## Validation and refresh
 
-- use July components to predict July;
-- substitute March components as a June proxy;
-- interpolate missing official components;
-- fill missing fields with averages; or
-- fabricate coefficients, observations, predictions, or accuracy.
+`src/data.py` checks required fields, dates, duplicates, fuels, source IDs,
+HTTPS evidence, numeric values, cycle ordering, and reconstruction arithmetic.
 
-## Validation
+To refresh the verified component dataset:
 
-`src/data.py` rejects missing required fields, invalid dates, duplicate
-fuel-cycle rows, unsupported fuels, unknown source IDs, non-HTTPS links,
-non-finite values, invalid input-target ordering, and component arithmetic
-outside the reconstruction tolerance.
-
-Run:
-
-```bash
-python scripts/build_model_dataset.py
-python -m compileall app.py src scripts
-```
-
-## Refresh procedure
-
-1. Locate the official EPRA release and exact annex evidence.
-2. Add a unique source record with an HTTPS URL.
-3. Transcribe the component groups without estimating missing values.
-4. Record effective dates, fuel, published price, verification status, and
-   reconstruction fields.
-5. Reconstruct the price and resolve any discrepancy against the official
-   source.
-6. Rebuild `component_prediction_dataset.csv`.
-7. Confirm that every target follows its input and that July remains outside
-   training.
-8. Rebuild the notebook and report, then compile the Python files before publishing.
+1. Locate the official EPRA release and exact annex.
+2. Add its HTTPS source record.
+3. Transcribe all five component groups without estimating missing values.
+4. Record dates, fuel, price, verification status, and reconstruction fields.
+5. Resolve any reconstruction discrepancy against the official source.
+6. Rebuild the model dataset, notebook, and report.
+7. Compile the project before publishing.
