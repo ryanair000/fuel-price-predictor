@@ -11,7 +11,6 @@ from src.data import (
     load_prediction_dataset,
     load_sources,
 )
-from src.live_data import EPRA_PUMP_PRICES_URL, fetch_live_nairobi_prices
 from src.modeling import (
     COMPONENT_FEATURES,
     evaluate_latest_cycle,
@@ -49,23 +48,11 @@ def load_project_data() -> tuple[pd.DataFrame, ...]:
     )
 
 
-@st.cache_data(ttl=3600)
-def load_live_epra_data() -> tuple[pd.DataFrame, str | None]:
-    try:
-        return fetch_live_nairobi_prices(), None
-    except Exception as error:
-        return pd.DataFrame(), str(error)
-
-
 def money(value: float) -> str:
     return f"KSh {value:,.2f}"
 
 
-def home_page(
-    official: pd.DataFrame,
-    live_prices: pd.DataFrame,
-    live_error: str | None,
-) -> None:
+def home_page() -> None:
     st.header("Component-based prediction and fuel planning")
     st.write(
         "MafutaPlan uses verified fuel-cost components to study Nairobi maximum "
@@ -75,32 +62,6 @@ def home_page(
         "The prediction page uses March 2026 components to predict the next "
         "cycle, April 2026."
     )
-
-    columns = st.columns(3)
-    for column, fuel in zip(columns, FUEL_ORDER):
-        column.metric(fuel, money(float(official[FUEL_COLUMNS[fuel]].iloc[0])))
-    st.caption("Bundled official July 2026 Nairobi maximum retail-price snapshot.")
-
-    st.subheader("Live EPRA data")
-    if live_prices.empty:
-        st.warning(f"Live refresh is temporarily unavailable: {live_error}")
-    else:
-        latest = live_prices.iloc[0]
-        st.write(
-            f"Latest Nairobi row returned by EPRA: "
-            f"{latest.Effective_From:%d %B %Y} to {latest.Effective_To:%d %B %Y}"
-        )
-        live_columns = st.columns(3)
-        for column, fuel in zip(live_columns, FUEL_ORDER):
-            column.metric(fuel, money(float(latest[FUEL_COLUMNS[fuel]])))
-        st.caption(
-            f"Retrieved {latest.Retrieved_At:%d %B %Y %H:%M UTC}. "
-            "The EPRA web table can lag newer official announcements."
-        )
-        st.link_button("Open live EPRA pump-price table", EPRA_PUMP_PRICES_URL)
-    if st.button("Refresh live EPRA data"):
-        load_live_epra_data.clear()
-        st.rerun()
 
     st.subheader("Who the system is for")
     st.write(
@@ -118,11 +79,6 @@ def home_page(
         "**Brian, a Nairobi ride-hailing driver**, uses MafutaPlan to view the "
         "next-cycle estimate, understand price factors, estimate weekly fuel "
         "expenses, calculate journey costs, and plan his budget."
-    )
-    st.warning(
-        "Academic disclaimer: MafutaPlan is not an EPRA service and does not "
-        "replace an official price announcement. Station prices may be below the "
-        "regulated maximum."
     )
 
 
@@ -428,8 +384,7 @@ def main() -> None:
     st.caption(PROJECT_TITLE)
 
     if page == "Home":
-        live_prices, live_error = load_live_epra_data()
-        home_page(official, live_prices, live_error)
+        home_page()
     elif page == "Fuel Price Prediction":
         prediction_page(component_history, prediction_data)
     elif page == "Factors Affecting Fuel Price":
